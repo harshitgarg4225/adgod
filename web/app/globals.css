@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+/* Large tap targets for low-literacy, mobile-first users (PRD §12). */
+.tap {
+  @apply min-h-[48px] px-4 rounded-xl;
+}
