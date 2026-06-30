@@ -1,17 +1,22 @@
 "use client";
 
 import type {
+  AdminAccount,
+  AnomalyEvent,
   Angle,
   Brief,
   BusinessInput,
   CampaignItem,
   CreativeItem,
   Decision,
+  FeatureFlag,
   Home,
   Insight,
   LeadDetail,
   LeadListItem,
   Notification,
+  PartnerSubAccount,
+  Rollup,
   SubscribeResult,
   SubscriptionInfo,
   Tier,
@@ -144,6 +149,32 @@ export const api = {
       body: JSON.stringify({ tier }),
     }),
   subscription: () => req<SubscriptionInfo>("/billing/subscription"),
+
+  // Partner console
+  partnerSubAccounts: () => req<PartnerSubAccount[]>("/partner/sub-accounts"),
+  partnerRollup: () => req<Rollup>("/partner/rollup"),
+  partnerCreate: (body: { business_name: string; category: string; city: string }) =>
+    req<{ account_id: string }>("/partner/sub-accounts", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  // Admin console
+  adminAccounts: (q: string) =>
+    req<AdminAccount[]>(`/admin/accounts?q=${encodeURIComponent(q)}`),
+  adminAnomalies: () => req<AnomalyEvent[]>("/admin/anomaly-queue"),
+  adminPause: (accountId: string) =>
+    req<{ phase: string }>(`/admin/accounts/${accountId}/pause`, { method: "POST" }),
+  adminImpersonate: (accountId: string) =>
+    req<{ access: string; impersonating: string }>(`/admin/impersonate/${accountId}`, {
+      method: "POST",
+    }),
+  adminFlags: () => req<FeatureFlag[]>("/admin/feature-flags"),
+  adminSetFlag: (key: string, enabled: boolean) =>
+    req<{ key: string; enabled: boolean }>("/admin/feature-flags", {
+      method: "POST",
+      body: JSON.stringify({ key, enabled }),
+    }),
 };
 
 export { ApiError };

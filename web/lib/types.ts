@@ -160,3 +160,45 @@ export interface SubscriptionInfo {
   trial_end?: string | null;
   current_period_end?: string | null;
 }
+
+export interface PartnerSubAccount {
+  account_id: string;
+  business_name: string;
+  category: string;
+  phase: string;
+  qualified_24h: number;
+  cpql_paise: number | null;
+}
+
+export interface Rollup {
+  accounts: number;
+  live: number;
+  total_spend_paise: number;
+  qualified_leads: number;
+  avg_cpql_paise: number | null;
+}
+
+export interface AdminAccount {
+  id: string;
+  tenant_id: string;
+  business_name: string;
+  category: string;
+  phase: string;
+  autopilot: string;
+  trust_score: number;
+}
+
+export interface AnomalyEvent {
+  id: string;
+  account_id: string;
+  severity: string;
+  detail: Record<string, unknown>;
+  action_taken: string | null;
+  created_at: string;
+}
+
+export interface FeatureFlag {
+  key: string;
+  enabled: boolean;
+  description: string | null;
+}

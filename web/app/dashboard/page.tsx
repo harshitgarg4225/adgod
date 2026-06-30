@@ -86,6 +86,12 @@ export default function Dashboard() {
         <Quick href="/onboarding" icon="✨" label="Set up ads" />
         <Quick href="/reports" icon="📊" label="Reports" />
         <Quick href="/billing" icon="💳" label="Billing" />
+        {(getUser()?.role === "PARTNER" || getUser()?.role === "ADMIN") && (
+          <Quick href="/partner" icon="🧑‍💼" label="Clients" />
+        )}
+        {(getUser()?.role === "ADMIN" || getUser()?.role === "OPS") && (
+          <Quick href="/admin" icon="🛠️" label="Admin" />
+        )}
       </nav>
 
       <section className="px-4 pt-4">
