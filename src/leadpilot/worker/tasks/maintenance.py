@@ -65,3 +65,79 @@ def reporter_dispatch_daily() -> dict:
         enqueued += 1
     log.info("reporter_dispatch", enqueued=enqueued)
     return {"enqueued": enqueued}
+
+
+# Retention windows (days). Durability/PII tables grow unbounded otherwise (DB audit P1).
+_RETENTION = {
+    # processed effects no longer needed once delivered + a safety margin
+    "outbox": ("status IN ('DONE','DEAD') AND created_at <", 7),
+    # idempotency only needs to cover client retries
+    "idempotency_keys": ("created_at <", 2),
+    # consumed/expired OTPs
+    "auth_otps": ("created_at <", 1),
+    # webhook intake records once processed
+    "inbound_events": ("processed_at IS NOT NULL AND created_at <", 30),
+}
+
+
+@app.task(name="leadpilot.workflow.retention_sweep")
+def retention_sweep() -> dict:
+    """Daily: bound the growth of durability/PII tables. Runs as the platform role; each
+    DELETE is independent so one failure can't block the rest."""
+    deleted: dict[str, int] = {}
+    for table, (predicate, days) in _RETENTION.items():
+        try:
+            with platform_session() as s:
+                res = s.execute(
+                    text(f"DELETE FROM {table} WHERE {predicate} now() - interval '{days} days'")
+                )
+                deleted[table] = res.rowcount or 0
+        except Exception as exc:  # noqa: BLE001 - never let one table abort the sweep
+            log.warning("retention_sweep_failed", table=table, error=str(exc)[:200])
+    log.info("retention_sweep", **deleted)
+    return deleted
+
+
+@app.task(name="leadpilot.billing.trial_sweep")
+def trial_sweep() -> dict:
+    """Daily: convert expired trials. A TRIAL whose trial_end has passed without a captured
+    mandate goes PAST_DUE and its ads are paused (stops free-rider spend); the owner gets a
+    BILLING notification nudging them to add payment. Real mandate captures flip the
+    subscription to ACTIVE via the Razorpay webhook before this runs."""
+    from datetime import UTC, datetime
+
+    expired = 0
+    with platform_session() as s:
+        rows = s.execute(
+            text(
+                "SELECT id, tenant_id, account_id FROM subscriptions "
+                "WHERE status = 'TRIAL' AND trial_end IS NOT NULL AND trial_end < now()"
+            )
+        ).all()
+        now = datetime.now(UTC)
+        for sub_id, tenant_id, account_id in rows:
+            s.execute(
+                text("UPDATE subscriptions SET status='PAST_DUE', updated_at=:now WHERE id=:id"),
+                {"now": now, "id": sub_id},
+            )
+            # Pause spend until they pay.
+            s.execute(
+                text("UPDATE accounts SET phase='PAUSED' WHERE id=:id AND phase IN "
+                     "('LIVE','OPTIMIZING','FATIGUE_REFRESH')"),
+                {"id": account_id},
+            )
+            s.execute(
+                text(
+                    "INSERT INTO notifications (tenant_id, account_id, kind, title, body) "
+                    "VALUES (:t, :a, 'BILLING', :title, :body)"
+                ),
+                {
+                    "t": tenant_id, "a": account_id,
+                    "title": "Your free trial has ended",
+                    "body": "Add a payment method to keep Saathi running your ads.",
+                },
+            )
+            expired += 1
+    if expired:
+        log.info("trial_sweep", expired=expired)
+    return {"expired": expired}

@@ -42,10 +42,14 @@ class Paise:
 
 
 def gst_paise(base_paise: int) -> int:
-    """18% GST on a base amount, in paise, using integer math (banker-free, floor)."""
+    """18% GST on a base amount, in paise, using integer math with round-half-up.
+
+    Round-half-up matches statutory invoice rounding (floor could under-collect by up to a
+    paise). Pure integer: add half the divisor before the integer division.
+    """
     if base_paise < 0:
         raise ValueError("base cannot be negative")
-    return (base_paise * GST_RATE_BPS) // 10_000
+    return (base_paise * GST_RATE_BPS + 5_000) // 10_000
 
 
 def with_gst(base_paise: int) -> tuple[int, int, int]:

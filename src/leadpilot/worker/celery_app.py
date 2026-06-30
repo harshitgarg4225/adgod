@@ -54,4 +54,12 @@ app.conf.beat_schedule = {
         "task": "leadpilot.reporter.dispatch_daily",
         "schedule": crontab(hour=20, minute=0),
     },
+    "retention-sweep-daily-0330-ist": {
+        "task": "leadpilot.workflow.retention_sweep",
+        "schedule": crontab(hour=3, minute=30),  # off-peak
+    },
+    "trial-sweep-daily-0900-ist": {
+        "task": "leadpilot.billing.trial_sweep",
+        "schedule": crontab(hour=9, minute=0),
+    },
 }
