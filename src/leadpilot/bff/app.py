@@ -7,14 +7,17 @@ from __future__ import annotations
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from leadpilot.bff.routers import admin, agents, auth, billing, leads, onboarding, partner
 from leadpilot.common.config import settings
 from leadpilot.common.errors import AppError, app_error_handler, unhandled_error_handler
 from leadpilot.common.i18n import normalize_locale
 from leadpilot.common.logging import configure_logging
+from leadpilot.common.observability import init_observability, readiness
 
 configure_logging()
+init_observability("bff-api")
 
 app = FastAPI(title="LeadPilot BFF", version="0.1.0")
 
@@ -40,6 +43,12 @@ app.add_exception_handler(Exception, unhandled_error_handler)
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "bff-api", "env": settings.environment}
+
+
+@app.get("/ready")
+def ready() -> JSONResponse:
+    r = readiness()
+    return JSONResponse(r, status_code=200 if r["ready"] else 503)
 
 
 API = "/api/v1"

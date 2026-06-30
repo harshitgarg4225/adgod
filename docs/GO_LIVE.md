@@ -60,11 +60,19 @@ Railway has no guaranteed India region. Decide:
 Do not onboard real-PII accounts until this is signed off.
 
 ## Stage 5 — Production hardening (recommended before scale)
-- Set `Sentry`/OTel DSNs; enable PgBouncer; raise `closer-worker` warm replicas.
-- Replace the in-request pipeline triggers in `bff/routers/agents.py` with enqueue
-  (worker tasks already exist) for owner-initiated research/creative/launch at scale.
-- Wire MSG91 real OTP + `auth_otps`; add Razorpay invoice PDF generation; CSV export +
-  wallet (Pro). These are marked in code as Phase-2/3 follow-ups.
+Built and tested (just supply the secret / flip the flag):
+- **Real OTP** (MSG91) + `auth_otps` — set `MSG91_API_KEY`, `MOCK_OTP=false`.
+- **Razorpay webhook** → subscription ACTIVE + GST invoice on charge, PAST_DUE on failure
+  (`/webhooks/razorpay`, signature-verified).
+- **Meta lead-form webhook** → Instant-Form leads flow into the inbox (`/webhooks/meta/leadgen`).
+- **Token encryption at rest** (Meta system-user tokens, Fernet).
+- **Health/readiness** (`/health`, `/ready` check DB+Redis) for Railway probes.
+- **Sentry** — set `SENTRY_DSN` and `pip install sentry-sdk` (optional, auto-detected).
+
+Still recommended follow-ups: enable PgBouncer; raise `closer-worker` warm replicas;
+move owner-initiated pipeline triggers in `bff/routers/agents.py` to enqueue at scale;
+Razorpay invoice-PDF generation; CSV export + wallet (Pro); Meta Embedded-Signup OAuth
+callback (replaces manual token entry on `/onboarding/meta/connect`).
 
 ## Definition of "ready for first paying pilot"
 Stages 0–2 done + Stage 3 via the **CTWA-to-app shortcut** (no WABA needed) + Stage 4

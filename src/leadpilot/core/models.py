@@ -633,6 +633,20 @@ class FeatureFlag(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
 
 
+class AuthOtp(Base):
+    """Phone OTP challenge (PRD §8.1). Non-RLS — verified before any tenant context."""
+
+    __tablename__ = "auth_otps"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    phone: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 # Tables that are RLS-forced (carry tenant_id; subject to the app.tenant_id policy).
 # Intentionally NOT RLS:
 #   * infra: outbox, jobs, dlq, inbound_events, idempotency_keys, wa_routes, tenants
