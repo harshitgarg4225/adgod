@@ -14,6 +14,7 @@ from leadpilot.core.db import tenant_session
 from leadpilot.core.models import (
     AdInsight,
     Angle,
+    Approval,
     BusinessBrief,
     Campaign,
     Creative,
@@ -144,3 +145,33 @@ def report(account_id: str, principal: Principal = Depends(current_principal)) -
     with tenant_session(principal.tenant_id) as s:
         msg = pipeline.run_report(s, tenant_id=principal.tenant_id, account_id=account_id)
     return {"message": msg}
+
+
+@router.get("/accounts/{account_id}/approvals")
+def list_approvals(account_id: str, principal: Principal = Depends(current_principal)) -> list[dict]:
+    require_account_access(principal, account_id)
+    with tenant_session(principal.tenant_id) as s:
+        rows = s.scalars(
+            select(Approval).where(Approval.account_id == account_id, Approval.status == "PENDING")
+        ).all()
+        return [{"id": str(a.id), "kind": a.kind, "payload": a.payload, "status": a.status}
+                for a in rows]
+
+
+@router.post("/approvals/{approval_id}/decide")
+def decide_approval(
+    approval_id: str, approve: bool = True, principal: Principal = Depends(current_principal)
+) -> dict:
+    with tenant_session(principal.tenant_id) as s:
+        ap = s.get(Approval, approval_id)
+        if ap is None:
+            return {"ok": False}
+        require_account_access(principal, str(ap.account_id))
+        ap.status = "APPROVED" if approve else "REJECTED"
+        # Approving a creative batch promotes its creatives to launch-ready.
+        if approve and ap.kind == "CREATIVE_BATCH":
+            for cid in ap.payload.get("creative_ids", []):
+                c = s.get(Creative, cid)
+                if c is not None and c.compliance_status == "PASSED":
+                    c.approval_status = "APPROVED_FOR_LAUNCH"
+        return {"ok": True, "status": ap.status}
