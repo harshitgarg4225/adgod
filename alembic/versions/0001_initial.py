@@ -57,9 +57,12 @@ def upgrade() -> None:
     )
 
     # 5. Row-Level Security: FORCE so even the table owner is bound; isolate by tenant_id.
+    #    Idempotent (DROP IF EXISTS) so a from-scratch `upgrade head` is reproducible even
+    #    though create_all above may have built tables the model added in later revisions.
     for table in RLS_TABLES:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+        op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
         op.execute(
             f"""
             CREATE POLICY tenant_isolation ON {table}

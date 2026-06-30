@@ -41,6 +41,7 @@ def upgrade() -> None:
     for table in NEW_RLS_TABLES:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+        op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")  # reproducible from scratch
         op.execute(
             f"""
             CREATE POLICY tenant_isolation ON {table}
