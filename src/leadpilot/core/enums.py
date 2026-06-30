@@ -155,3 +155,104 @@ class NotificationKind(StrEnum):
     ANOMALY = "ANOMALY"
     BILLING = "BILLING"
     REPORT = "REPORT"
+    CREATIVE_READY = "CREATIVE_READY"
+    CAMPAIGN_LIVE = "CAMPAIGN_LIVE"
+
+
+class CampaignStatus(StrEnum):
+    DRAFT = "DRAFT"
+    IN_REVIEW = "IN_REVIEW"
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    ARCHIVED = "ARCHIVED"
+
+
+class AdSetRole(StrEnum):
+    PROSPECTING = "PROSPECTING"
+    LOOKALIKE = "LOOKALIKE"
+    TESTING = "TESTING"
+
+
+class CreativeFormat(StrEnum):
+    IMAGE_VERTICAL = "IMAGE_VERTICAL"
+    IMAGE_SQUARE = "IMAGE_SQUARE"
+    VIDEO_9_16 = "VIDEO_9_16"
+
+
+class ComplianceStatus(StrEnum):
+    PENDING = "PENDING"
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+
+
+class ApprovalState(StrEnum):
+    DRAFT = "DRAFT"
+    APPROVED_FOR_LAUNCH = "APPROVED_FOR_LAUNCH"
+    REJECTED = "REJECTED"
+
+
+class InsightLevel(StrEnum):
+    CAMPAIGN = "CAMPAIGN"
+    ADSET = "ADSET"
+    AD = "AD"
+
+
+class OptimizationAction(StrEnum):
+    PAUSE = "PAUSE"
+    SCALE = "SCALE"
+    REALLOCATE = "REALLOCATE"
+    REQUEST_CREATIVE = "REQUEST_CREATIVE"
+    RESUME = "RESUME"
+    NO_OP = "NO_OP"
+
+
+class ApprovalKind(StrEnum):
+    CREATIVE_BATCH = "CREATIVE_BATCH"
+    BUDGET_INCREASE = "BUDGET_INCREASE"
+    LAUNCH = "LAUNCH"
+
+
+class ApprovalStatus(StrEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class SubscriptionTier(StrEnum):
+    STARTER = "STARTER"
+    GROWTH = "GROWTH"
+    PRO = "PRO"
+
+
+class SubscriptionStatus(StrEnum):
+    TRIAL = "TRIAL"
+    ACTIVE = "ACTIVE"
+    PAST_DUE = "PAST_DUE"
+    CANCELLED = "CANCELLED"
+
+
+class InvoiceStatus(StrEnum):
+    DRAFT = "DRAFT"
+    PAID = "PAID"
+    FAILED = "FAILED"
+    VOID = "VOID"
+
+
+class WalletEntryType(StrEnum):
+    TOPUP = "TOPUP"
+    AD_SPEND = "AD_SPEND"
+    REFUND = "REFUND"
+    ADJUSTMENT = "ADJUSTMENT"
+
+
+class TemplateCategory(StrEnum):
+    MARKETING = "MARKETING"
+    UTILITY = "UTILITY"
+    AUTHENTICATION = "AUTHENTICATION"
+
+
+class TemplateStatus(StrEnum):
+    DRAFT = "DRAFT"
+    SUBMITTED = "SUBMITTED"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"

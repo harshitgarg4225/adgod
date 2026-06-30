@@ -243,7 +243,21 @@ def _optimizer(ctx: dict) -> OptimizerOutput:
 
 
 def _reporter(ctx: dict) -> ReporterOutput:
-    return ReporterOutput(message="Aaj aapke 0 enquiry aaye. Kal aur behtar karenge! 🙏")
+    spend = (ctx.get("spend_paise", 0) or 0) // 100
+    enq = ctx.get("enquiries", 0)
+    qual = ctx.get("qualified", 0)
+    cpql = (ctx.get("cpql_paise", 0) or 0) // 100
+    dec = ctx.get("decisions", 0)
+    lang = ctx.get("language", "hi")
+    if lang == "hi":
+        msg = (f"आज का हाल 🙏\n• खर्च: ₹{spend}\n• पूछताछ: {enq}\n"
+               f"• पक्के ग्राहक: {qual}\n• प्रति ग्राहक लागत: ₹{cpql}\n"
+               f"• Saathi ने {dec} सुधार किए। कल और बेहतर! 🚀")
+    else:
+        msg = (f"Today's update 🙏\n• Spent: ₹{spend}\n• Enquiries: {enq}\n"
+               f"• Qualified: {qual}\n• Cost/qualified: ₹{cpql}\n"
+               f"• Saathi made {dec} optimizations. Onward! 🚀")
+    return ReporterOutput(message=msg)
 
 
 _HANDLERS = {

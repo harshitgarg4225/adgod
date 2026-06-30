@@ -9,10 +9,12 @@ and runs a 24/7 WhatsApp qualifier bot that turns clicks into **qualified** lead
 > hosted on **Railway**. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the
 > full architecture and the phased build plan.
 
-## What's built (walking skeleton — Phase 0 + Phase 1)
+## What's built (Phase 0 + 1 + the autonomous ad pipeline)
 
-The core loop, end to end, with **mocked Meta/WhatsApp transport behind real interfaces**:
+All with **mocked Meta/WhatsApp/Razorpay transport behind real interfaces** — flip a
+`MOCK_*` env flag to go live with no code change.
 
+**Lead loop (Closer):**
 ```
 inbound WhatsApp (CTWA) → /webhooks/whatsapp (verify + idempotent persist + enqueue)
   → closer-worker → Saathi Orchestrator (CLOSER trigger)
@@ -20,6 +22,15 @@ inbound WhatsApp (CTWA) → /webhooks/whatsapp (verify + idempotent persist + en
   → persist lead + transcript + qualification (HOT/WARM/COLD) under RLS
   → enqueue owner notification → owner sees the HOT lead in the Next.js inbox
 ```
+
+**Autonomous ad pipeline** (what the competitors don't have — see `docs/COMPETITIVE.md`):
+```
+onboard → Scout (research → brief + ≥8 angles) → Maker (vernacular copy + image,
+compliance-screened) → Buyer (CTWA campaign: 70/20/10 ad sets) → Optimizer (CPL→CPQL,
+pause/scale/fatigue within hard bounds) → Reporter (daily vernacular summary)
+```
+Drives an account `ONBOARDING → RESEARCHED → CREATIVE_GENERATED → LIVE → OPTIMIZING`,
+with Razorpay UPI-Autopay subscriptions (+18% GST). All exercised by `tests/`.
 
 Every external effect (WhatsApp send, future Meta edit) flows through a Postgres
 **transactional outbox + idempotency keys** → exactly-once *effect*, no double-spend,

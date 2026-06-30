@@ -13,6 +13,7 @@ from leadpilot.core.enums import AccountPhase, AutopilotLevel, UserRole, WhatsAp
 from leadpilot.core.models import (
     Account,
     BusinessProfile,
+    MetaConnection,
     Tenant,
     User,
     WaRoute,
@@ -82,6 +83,15 @@ def seed() -> None:
                 mode=WhatsAppMode.CLOUD_API.value, phone_number_id=DEMO_PHONE_NUMBER_ID,
                 display_phone="+91 98765 00000", verified_name_status="APPROVED",
                 quality_rating="GREEN",
+            ))
+        exists_meta = s.scalar(
+            select(MetaConnection).where(MetaConnection.account_id == DEMO_ACCOUNT_ID)
+        )
+        if exists_meta is None:
+            s.add(MetaConnection(
+                tenant_id=DEMO_TENANT_ID, account_id=DEMO_ACCOUNT_ID,
+                meta_business_id="100200300", ad_account_id="1234567890",
+                page_id="9876543210", status="ACTIVE",
             ))
 
     log.info("seed_done", account=str(DEMO_ACCOUNT_ID))

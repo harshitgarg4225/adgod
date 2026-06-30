@@ -13,8 +13,10 @@ from datetime import datetime
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -412,6 +414,196 @@ class Notification(Base, TimestampMixin):
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+# ─────────────────────────── Research & creative (Scout/Maker) ───────────────────────────
+
+class BusinessBrief(Base, TimestampMixin):
+    __tablename__ = "business_briefs"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    offer: Mapped[str | None] = mapped_column(Text)
+    audience: Mapped[list] = mapped_column(JSONB, default=list)
+    usp: Mapped[list] = mapped_column(JSONB, default=list)
+    objections: Mapped[list] = mapped_column(JSONB, default=list)
+    tone: Mapped[str | None] = mapped_column(String(200))
+    source_refs: Mapped[dict] = mapped_column(JSONB, default=dict)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class Angle(Base, TimestampMixin):
+    __tablename__ = "angles"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    brief_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    rationale: Mapped[str | None] = mapped_column(Text)
+    hypothesis: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(12), default="ACTIVE")
+    qualified_lead_rate: Mapped[float | None] = mapped_column(Float)
+
+
+# ─────────────────────────── Campaign hierarchy (Buyer) ───────────────────────────
+
+class AdSet(Base, TimestampMixin):
+    __tablename__ = "ad_sets"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    meta_adset_id: Mapped[str | None] = mapped_column(String(60))
+    name: Mapped[str | None] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(16), default="PROSPECTING")
+    targeting: Mapped[dict] = mapped_column(JSONB, default=dict)
+    budget_paise: Mapped[int] = mapped_column(BigInteger, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="DRAFT")
+
+
+class Ad(Base, TimestampMixin):
+    __tablename__ = "ads"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    ad_set_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    meta_ad_id: Mapped[str | None] = mapped_column(String(60))
+    creative_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    status: Mapped[str] = mapped_column(String(16), default="DRAFT")
+    review_status: Mapped[str | None] = mapped_column(String(20))
+
+
+class Audience(Base, TimestampMixin):
+    __tablename__ = "audiences"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    type: Mapped[str] = mapped_column(String(16), default="SAVED")
+    meta_audience_id: Mapped[str | None] = mapped_column(String(60))
+    spec: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
+class AdInsight(Base):
+    """Per-level performance rows (partition-friendly by date). CPQL is joined from leads."""
+
+    __tablename__ = "ad_insights"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    level: Mapped[str] = mapped_column(String(10), nullable=False)
+    ref_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    spend_paise: Mapped[int] = mapped_column(BigInteger, default=0)
+    impressions: Mapped[int] = mapped_column(BigInteger, default=0)
+    clicks: Mapped[int] = mapped_column(BigInteger, default=0)
+    ctr: Mapped[float] = mapped_column(Float, default=0.0)
+    frequency: Mapped[float] = mapped_column(Float, default=0.0)
+    leads: Mapped[int] = mapped_column(Integer, default=0)
+    qualified_leads: Mapped[int] = mapped_column(Integer, default=0)
+    cpl_paise: Mapped[int] = mapped_column(BigInteger, default=0)
+    cpql_paise: Mapped[int] = mapped_column(BigInteger, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class OptimizationDecision(Base):
+    __tablename__ = "optimization_decisions"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    level: Mapped[str] = mapped_column(String(10))
+    ref_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason_code: Mapped[str | None] = mapped_column(String(60))
+    before: Mapped[dict] = mapped_column(JSONB, default=dict)
+    after: Mapped[dict] = mapped_column(JSONB, default=dict)
+    applied: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Approval(Base, TimestampMixin):
+    __tablename__ = "approvals"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String(12), default="PENDING")
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ─────────────────────────── Billing ───────────────────────────
+
+class Subscription(Base, TimestampMixin):
+    __tablename__ = "subscriptions"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, unique=True, index=True
+    )
+    tier: Mapped[str] = mapped_column(String(12), default="GROWTH")
+    status: Mapped[str] = mapped_column(String(12), default="TRIAL")
+    razorpay_subscription_id: Mapped[str | None] = mapped_column(String(60))
+    mandate_id: Mapped[str | None] = mapped_column(String(60))
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    trial_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Invoice(Base, TimestampMixin):
+    __tablename__ = "invoices"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    razorpay_invoice_id: Mapped[str | None] = mapped_column(String(60))
+    amount_paise: Mapped[int] = mapped_column(BigInteger, default=0)
+    gst_paise: Mapped[int] = mapped_column(BigInteger, default=0)
+    status: Mapped[str] = mapped_column(String(12), default="DRAFT")
+    pdf_url: Mapped[str | None] = mapped_column(String(500))
+    period: Mapped[str | None] = mapped_column(String(20))
+
+
+class WalletLedger(Base):
+    __tablename__ = "wallet_ledger"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    entry_type: Mapped[str] = mapped_column(String(12), nullable=False)
+    amount_paise: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    balance_paise: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    ref: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class WaTemplate(Base, TimestampMixin):
+    __tablename__ = "wa_templates"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    language: Mapped[str] = mapped_column(String(8), default="hi")
+    category: Mapped[str] = mapped_column(String(16), default="UTILITY")
+    body: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(12), default="DRAFT")
+    meta_template_id: Mapped[str | None] = mapped_column(String(60))
+
+
+class Booking(Base, TimestampMixin):
+    __tablename__ = "bookings"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    lead_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    slot_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    slot_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), default="PROPOSED")
+    calendar_ref: Mapped[str | None] = mapped_column(String(120))
+
+
 # Tables that are RLS-forced (carry tenant_id; subject to the app.tenant_id policy).
 # Intentionally NOT RLS:
 #   * infra: outbox, jobs, dlq, inbound_events, idempotency_keys, wa_routes, tenants
@@ -422,4 +614,7 @@ RLS_TABLES = [
     "accounts", "business_profiles", "whatsapp_connections", "meta_connections",
     "campaigns", "creatives", "leads", "conversations", "messages", "lead_qualifications",
     "agent_runs", "guardrail_events", "notifications",
+    "business_briefs", "angles", "ad_sets", "ads", "audiences", "ad_insights",
+    "optimization_decisions", "approvals", "subscriptions", "invoices", "wallet_ledger",
+    "bookings",
 ]
