@@ -3,122 +3,149 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, getUser } from "@/lib/api";
-import { TopBar } from "@/components/ui";
+import { useT } from "@/lib/i18n";
+import { Button, Card, Icon, Input, TopBar, useToast } from "@/components/ui";
 
 export default function Connect() {
   const router = useRouter();
+  const t = useT();
+  const toast = useToast();
   const [mode, setMode] = useState<"APP_DESTINATION" | "CLOUD_API">("APP_DESTINATION");
   const [phone, setPhone] = useState("");
   const [phoneNumberId, setPhoneNumberId] = useState("");
   const [adAccount, setAdAccount] = useState("");
   const [pageId, setPageId] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function connect() {
     setBusy(true);
-    setError(null);
     try {
       await api.connectWhatsApp(
-        mode === "APP_DESTINATION"
-          ? { mode, phone }
-          : { mode, phone_number_id: phoneNumberId }
+        mode === "APP_DESTINATION" ? { mode, phone } : { mode, phone_number_id: phoneNumberId }
       );
       if (adAccount && pageId) {
-        await api.connectMeta({
-          meta_business_id: adAccount,
-          ad_account_id: adAccount,
-          page_id: pageId,
-        });
+        await api.connectMeta({ meta_business_id: adAccount, ad_account_id: adAccount, page_id: pageId });
       }
       const account = getUser()?.account_id;
       if (account) await api.runResearch(account);
       router.replace("/onboarding/brief");
     } catch (e: any) {
-      setError(e.userMessage || "Could not connect");
-    } finally {
+      toast.show(e.userMessage || t("common.somethingWrong", "Could not connect."), "error");
       setBusy(false);
     }
   }
 
+  const canContinue = mode === "APP_DESTINATION" ? phone.trim().length >= 6 : phoneNumberId.trim().length > 0;
+
   return (
-    <main className="pb-28">
-      <TopBar title="Connect to go live" back="/onboarding" />
+    <main className="min-h-[100dvh] pb-28">
+      <TopBar title={t("connect.title", "Connect to go live")} back="/onboarding" />
       <section className="space-y-5 p-4">
         <div>
-          <h2 className="mb-2 text-lg font-bold">Where should leads go?</h2>
-          <div className="grid grid-cols-1 gap-2">
+          <h2 className="mb-1 text-lg font-bold">{t("connect.where", "Where should leads go?")}</h2>
+          <p className="mb-3 text-sm text-ink-muted">
+            {t("connect.whereSub", "Pick the simplest option — you can switch anytime.")}
+          </p>
+          <div className="grid gap-2">
             <Choice
               active={mode === "APP_DESTINATION"}
               onClick={() => setMode("APP_DESTINATION")}
-              title="My own WhatsApp (fastest — live this week)"
-              sub="Ads open a chat on your existing WhatsApp number. No setup, no waiting."
+              icon="whatsapp"
+              title={t("connect.ownWa", "My own WhatsApp (fastest)")}
+              sub={t("connect.ownWaSub", "Ads open a chat on your existing number. No setup, live this week.")}
             />
             <Choice
               active={mode === "CLOUD_API"}
               onClick={() => setMode("CLOUD_API")}
-              title="Saathi's AI assistant (auto-qualifies leads)"
-              sub="Needs a WhatsApp API number (via a provider). Turn on anytime later."
+              icon="sparkle"
+              title={t("connect.aiWa", "Saathi's AI assistant")}
+              sub={t("connect.aiWaSub", "Auto-qualifies leads 24×7. Needs a WhatsApp API number — turn on later.")}
             />
           </div>
         </div>
 
         {mode === "APP_DESTINATION" ? (
-          <Field label="Your WhatsApp number">
-            <input className="tap w-full border text-lg" inputMode="tel" value={phone}
-              onChange={(e) => setPhone(e.target.value)} placeholder="+91…" />
-          </Field>
+          <Input
+            label={t("connect.yourWa", "Your WhatsApp number")}
+            inputMode="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+91…"
+          />
         ) : (
-          <Field label="WhatsApp API phone number ID">
-            <input className="tap w-full border" value={phoneNumberId}
-              onChange={(e) => setPhoneNumberId(e.target.value)} placeholder="phone_number_id" />
-          </Field>
+          <Input
+            label={t("connect.apiId", "WhatsApp API phone number ID")}
+            value={phoneNumberId}
+            onChange={(e) => setPhoneNumberId(e.target.value)}
+            placeholder="phone_number_id"
+            hint={t("connect.apiHint", "Your WhatsApp provider gives you this.")}
+          />
         )}
 
-        <div>
-          <h2 className="mb-2 text-lg font-bold">Meta ad account</h2>
-          <p className="mb-2 text-xs text-slate-500">
-            Connect the account that will run your ads. (Embedded Signup wires this
-            automatically in production.)
-          </p>
-          <div className="space-y-2">
-            <input className="tap w-full border" value={adAccount}
-              onChange={(e) => setAdAccount(e.target.value)} placeholder="Ad account ID" />
-            <input className="tap w-full border" value={pageId}
-              onChange={(e) => setPageId(e.target.value)} placeholder="Facebook Page ID" />
-          </div>
-        </div>
-
-        {error && <p className="text-center text-sm text-hot">{error}</p>}
+        {/* Advanced: Meta ad account — optional, Saathi helps in production */}
+        <Card className="!p-0">
+          <button
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex w-full items-center justify-between p-4"
+          >
+            <span className="text-left">
+              <span className="block font-semibold">{t("connect.adAccount", "Meta ad account")}</span>
+              <span className="block text-sm text-ink-muted">
+                {t("connect.adAccountOptional", "Optional now — Saathi helps connect this for you.")}
+              </span>
+            </span>
+            <Icon name={showAdvanced ? "chevronLeft" : "chevronRight"} className="text-ink-faint" />
+          </button>
+          {showAdvanced && (
+            <div className="space-y-2 px-4 pb-4">
+              <Input value={adAccount} onChange={(e) => setAdAccount(e.target.value)} placeholder={t("connect.adId", "Ad account ID")} />
+              <Input value={pageId} onChange={(e) => setPageId(e.target.value)} placeholder={t("connect.pageId", "Facebook Page ID")} />
+            </div>
+          )}
+        </Card>
       </section>
 
-      <div className="fixed inset-x-0 bottom-0 mx-auto max-w-md border-t bg-white p-3">
-        <button onClick={connect} disabled={busy}
-          className="tap w-full bg-brand font-semibold text-white disabled:opacity-50">
-          {busy ? "Saathi is building your ads…" : "Connect & build my ads →"}
-        </button>
+      <div className="cta-dock">
+        <Button fullWidth size="lg" leftIcon="sparkle" loading={busy} disabled={!canContinue} onClick={connect}>
+          {busy ? t("connect.building", "Saathi is building your ads…") : t("connect.cta", "Connect & build my ads")}
+        </Button>
       </div>
     </main>
   );
 }
 
-function Choice({ active, onClick, title, sub }: {
-  active: boolean; onClick: () => void; title: string; sub: string;
+function Choice({
+  active,
+  onClick,
+  title,
+  sub,
+  icon,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  sub: string;
+  icon: string;
 }) {
   return (
-    <button onClick={onClick}
-      className={`rounded-2xl border p-3 text-left ${active ? "border-brand bg-brand-light" : ""}`}>
-      <p className="font-semibold">{title}</p>
-      <p className="text-sm text-slate-500">{sub}</p>
+    <button
+      onClick={onClick}
+      className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition ${
+        active ? "border-brand bg-brand-50 shadow-card" : "border-slate-200 bg-white"
+      }`}
+    >
+      <span
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+          active ? "bg-brand text-white" : "bg-slate-100 text-ink-muted"
+        }`}
+      >
+        <Icon name={icon} />
+      </span>
+      <span>
+        <span className="block font-semibold">{title}</span>
+        <span className="block text-sm text-ink-muted">{sub}</span>
+      </span>
     </button>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h3 className="mb-2 text-sm font-medium text-slate-600">{label}</h3>
-      {children}
-    </div>
   );
 }

@@ -4,10 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, getUser } from "@/lib/api";
 import type { Angle, Brief } from "@/lib/types";
-import { ErrorState, Loading, TopBar } from "@/components/ui";
+import { useT } from "@/lib/i18n";
+import { Button, Card, ErrorState, Loading, SaathiStatusCard, TopBar, useToast } from "@/components/ui";
 
 export default function BriefPage() {
   const router = useRouter();
+  const t = useT();
+  const toast = useToast();
   const [brief, setBrief] = useState<Brief | null>(null);
   const [angles, setAngles] = useState<Angle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -22,9 +25,9 @@ export default function BriefPage() {
       setBrief(b);
       setAngles(a);
     } catch (e: any) {
-      setError(e.userMessage || "Could not load");
+      setError(e.userMessage || t("common.somethingWrong", "Could not load your brief."));
     }
-  }, [router]);
+  }, [router, t]);
 
   useEffect(() => {
     load();
@@ -36,53 +39,57 @@ export default function BriefPage() {
       await api.generateCreatives(getUser()!.account_id!);
       router.replace("/onboarding/creatives");
     } catch (e: any) {
-      setError(e.userMessage || "Could not generate ads");
-    } finally {
+      toast.show(e.userMessage || t("common.somethingWrong", "Could not generate ads."), "error");
       setBusy(false);
     }
   }
 
-  if (error) return <ErrorState message={error} onRetry={load} />;
-  if (!brief || !angles) return <Loading label="Saathi is understanding your business…" />;
+  if (error && !brief) return <ErrorState message={error} onRetry={load} />;
+  if (!brief || !angles)
+    return <Loading label={t("brief.loading", "Saathi is understanding your business…")} />;
 
   return (
-    <main className="pb-28">
-      <TopBar title="Here's what we understood" back="/onboarding" />
+    <main className="min-h-[100dvh] pb-28">
+      <TopBar title={t("brief.title", "Here's what Saathi understood")} back="/onboarding" />
       <section className="space-y-4 p-4">
-        <Card title="Your offer">{brief.offer || "—"}</Card>
-        <Card title="Who we'll target">{(brief.audience || []).join(", ") || "—"}</Card>
-        <Card title="Why people choose you">{(brief.usp || []).join(", ") || "—"}</Card>
+        <SaathiStatusCard
+          line={t("brief.intro", "I studied your business. Here's my plan — tweak anything later.")}
+        />
+        <Item title={t("brief.offer", "Your offer")} value={brief.offer || "—"} />
+        <Item title={t("brief.audience", "Who we'll target")} value={(brief.audience || []).join(", ") || "—"} />
+        <Item title={t("brief.usp", "Why people choose you")} value={(brief.usp || []).join(", ") || "—"} />
 
         <div>
-          <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">
-            Ad angles Saathi will test ({angles.length})
+          <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-ink-muted">
+            {t("brief.angles", "Ad ideas Saathi will test")} ({angles.length})
           </h2>
           <ul className="space-y-2">
             {angles.map((a) => (
-              <li key={a.id} className="rounded-2xl border p-3">
-                <p className="font-semibold">{a.title}</p>
-                <p className="text-sm text-slate-500">{a.hypothesis}</p>
+              <li key={a.id}>
+                <Card className="!p-3.5">
+                  <p className="font-semibold">{a.title}</p>
+                  <p className="text-sm text-ink-muted">{a.hypothesis}</p>
+                </Card>
               </li>
             ))}
           </ul>
         </div>
       </section>
 
-      <div className="fixed inset-x-0 bottom-0 mx-auto max-w-md border-t bg-white p-3">
-        <button onClick={createAds} disabled={busy}
-          className="tap w-full bg-brand font-semibold text-white disabled:opacity-50">
-          {busy ? "Writing your ads…" : "Looks good → Create my ads"}
-        </button>
+      <div className="cta-dock">
+        <Button fullWidth size="lg" leftIcon="check" loading={busy} onClick={createAds}>
+          {busy ? t("brief.writing", "Writing your ads…") : t("brief.cta", "Looks good — create my ads")}
+        </Button>
       </div>
     </main>
   );
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Item({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-2xl border p-3">
-      <p className="text-[10px] uppercase text-slate-400">{title}</p>
-      <p className="text-slate-800">{children}</p>
-    </div>
+    <Card className="!p-3.5">
+      <p className="text-2xs font-medium uppercase tracking-wide text-ink-faint">{title}</p>
+      <p className="mt-0.5 text-ink">{value}</p>
+    </Card>
   );
 }
