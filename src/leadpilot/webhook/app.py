@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from leadpilot.common.config import settings
 from leadpilot.common.logging import configure_logging, get_logger
 from leadpilot.common.observability import init_observability, readiness
+from leadpilot.common.security_headers import SecurityHeadersMiddleware
 from leadpilot.core.routing import record_inbound_event, resolve_wa_route
 from leadpilot.core.webhooks import apply_razorpay_event, capture_leadgen
 from leadpilot.integrations.razorpay.base import RazorpayAdapter
@@ -27,7 +28,8 @@ configure_logging()
 init_observability("webhook-intake")
 log = get_logger("webhook")
 
-app = FastAPI(title="LeadPilot webhook-intake", version="0.1.0")
+app = FastAPI(title="Salmor webhook-intake", version="0.1.0")
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Indirection so tests can assert enqueue behavior without a live broker.
 enqueue_closer = enqueue_inbound
@@ -47,7 +49,8 @@ def ready() -> JSONResponse:
 def _meta_signature_ok(body: bytes, signature: str | None) -> bool:
     secret = settings.meta_app_secret or settings.whatsapp_app_secret
     if not secret:
-        return not settings.is_production
+        # Fail-closed unless this is an explicitly recognised local/dev/test environment.
+        return not settings.requires_secure_webhooks
     return WhatsAppAdapter.verify_signature(body, signature, secret)
 
 
@@ -66,8 +69,9 @@ def _extract_lead_fields(value: dict) -> tuple[str | None, str | None]:
 def _signature_ok(body: bytes, signature: str | None) -> bool:
     secret = settings.whatsapp_app_secret
     if not secret:
-        # Dev convenience only — never allow unsigned webhooks in production.
-        return not settings.is_production
+        # Dev convenience only — fail-closed for any non-dev/test environment so a
+        # mis-set ENVIRONMENT string can't silently accept forged, unsigned webhooks.
+        return not settings.requires_secure_webhooks
     return WhatsAppAdapter.verify_signature(body, signature, secret)
 
 
@@ -159,7 +163,7 @@ async def razorpay_webhook(request: Request) -> JSONResponse:
     if secret:
         if not RazorpayAdapter.verify_webhook(body, sig, secret):
             return JSONResponse({"error": "invalid signature"}, status_code=403)
-    elif settings.is_production:
+    elif settings.requires_secure_webhooks:
         return JSONResponse({"error": "unconfigured"}, status_code=403)
 
     payload = json.loads(body or b"{}")

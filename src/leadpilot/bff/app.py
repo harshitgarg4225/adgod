@@ -15,16 +15,24 @@ from leadpilot.common.errors import AppError, app_error_handler, unhandled_error
 from leadpilot.common.i18n import normalize_locale
 from leadpilot.common.logging import configure_logging
 from leadpilot.common.observability import init_observability, readiness
+from leadpilot.common.security_headers import SecurityHeadersMiddleware
 
 configure_logging()
 init_observability("bff-api")
 
-app = FastAPI(title="LeadPilot BFF", version="0.1.0")
+app = FastAPI(title="Salmor BFF", version="0.1.0")
 
+# In production lock CORS to the known web origin(s) and do NOT pair "*" with credentials
+# (the browser rejects that combo and it signals an over-broad policy).
+_cors_origins = ["*"]
+if settings.is_production:
+    _configured = [o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()]
+    _cors_origins = _configured or [settings.web_base_url]
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if not settings.is_production else [settings.app_base_url],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=not settings.is_production or _cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

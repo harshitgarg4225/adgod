@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Request
@@ -23,11 +24,12 @@ from leadpilot.bff.schemas import (
 )
 from leadpilot.common.auth import decode_token, issue_access_token, issue_refresh_token
 from leadpilot.common.config import settings
-from leadpilot.common.errors import AuthError, NotFoundError
+from leadpilot.common.errors import AuthError
 from leadpilot.common.logging import get_logger
 from leadpilot.common.ratelimit import enforce
-from leadpilot.core.db import platform_session
-from leadpilot.core.models import AuthOtp, User
+from leadpilot.core.db import platform_session, tenant_session
+from leadpilot.core.enums import AccountPhase, TenantType, UserRole
+from leadpilot.core.models import Account, AuthOtp, Tenant, User
 from leadpilot.integrations.otp import get_otp_provider
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -43,9 +45,10 @@ def _hash(code: str) -> str:
 @router.post("/otp/request", status_code=202)
 def otp_request(req: OtpRequest, request: Request) -> dict:
     # Throttle OTP sends: per phone and per source IP (anti-abuse / SMS-cost control).
-    enforce("otp_request", req.phone, limit=5, window_s=600)
+    # fail_closed so an attacker can't defeat the SMS-cost limit by knocking Redis over.
+    enforce("otp_request", req.phone, limit=5, window_s=600, fail_closed=True)
     if request.client:
-        enforce("otp_request_ip", request.client.host, limit=20, window_s=600)
+        enforce("otp_request_ip", request.client.host, limit=20, window_s=600, fail_closed=True)
     code = f"{secrets.randbelow(1_000_000):06d}"
     with platform_session() as s:
         s.add(AuthOtp(phone=req.phone, code_hash=_hash(code),
@@ -63,10 +66,32 @@ def _user_by_phone(phone: str) -> User | None:
         return s.scalar(select(User).where(User.phone == phone))
 
 
+def _signup(phone: str) -> User:
+    """Self-serve signup on first verified login: create a DIRECT tenant, an owner user,
+    and an Account in the SIGNED_UP phase. Onboarding fills in business details, budget,
+    language and the Meta/WhatsApp connections; the account stays pre-live until then."""
+    tenant_id = uuid.uuid4()
+    account_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    with platform_session() as s:
+        s.add(Tenant(id=tenant_id, name="Direct Tenant", type=TenantType.DIRECT.value,
+                     status="ACTIVE", settings={}))
+        s.add(User(id=user_id, tenant_id=tenant_id, account_id=account_id, phone=phone,
+                   role=UserRole.OWNER.value, name=None, locale="hi"))
+    with tenant_session(tenant_id) as s:
+        s.add(Account(id=account_id, tenant_id=tenant_id, business_name="",
+                      category="general", phase=AccountPhase.SIGNED_UP.value,
+                      default_language="hi", created_via="self_serve"))
+    log.info("self_serve_signup", account=str(account_id))
+    # Re-read under platform context so the caller gets a fully populated row.
+    with platform_session() as s:
+        return s.get(User, user_id)
+
+
 @router.post("/otp/verify", response_model=TokenOut)
 def otp_verify(req: OtpVerify) -> TokenOut:
-    # Throttle verify attempts per phone to blunt OTP brute force.
-    enforce("otp_verify", req.phone, limit=10, window_s=600)
+    # Throttle verify attempts per phone to blunt OTP brute force (fail-closed on outage).
+    enforce("otp_verify", req.phone, limit=10, window_s=600, fail_closed=True)
     now = datetime.now(UTC)
     with platform_session() as s:
         otp = s.scalar(
@@ -78,9 +103,9 @@ def otp_verify(req: OtpVerify) -> TokenOut:
             raise AuthError("Invalid or expired code", user_message_key="error.validation")
         otp.consumed_at = now
 
-    user = _user_by_phone(req.phone)
-    if user is None:
-        raise NotFoundError("No account for this number")
+    # Create-on-first-login: a verified but unknown phone becomes a new owner account.
+    # This is the self-serve signup path AND avoids leaking which numbers already exist.
+    user = _user_by_phone(req.phone) or _signup(req.phone)
 
     access = issue_access_token(
         user_id=str(user.id), tenant_id=str(user.tenant_id),

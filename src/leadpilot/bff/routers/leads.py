@@ -27,6 +27,16 @@ from leadpilot.core.money import format_paise
 
 router = APIRouter(tags=["leads"])
 
+
+def _csv_safe(value: str) -> str:
+    """Neutralise CSV formula injection: a cell starting with = + - @ (or a leading tab/CR)
+    is treated as a formula by Excel/Sheets. Prefix with an apostrophe so attacker-supplied
+    lead text can't execute when the owner opens the export."""
+    if value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 _SCORE_RANK = case(
     {LeadScore.HOT.value: 0, LeadScore.WARM.value: 1, LeadScore.COLD.value: 2,
      LeadScore.SPAM.value: 3},
@@ -163,8 +173,9 @@ def export_leads_csv(
         w.writerow(["name", "phone", "score", "status", "intent", "location",
                     "owner_action", "created_at"])
         for r in rows:
-            w.writerow([r.name or "", r.wa_phone, r.score or "", r.status,
-                        r.intent_summary or "", r.location_signal or "", r.owner_action,
+            w.writerow([_csv_safe(r.name or ""), _csv_safe(r.wa_phone), r.score or "",
+                        r.status, _csv_safe(r.intent_summary or ""),
+                        _csv_safe(r.location_signal or ""), r.owner_action,
                         r.created_at.isoformat()])
     buf.seek(0)
     return StreamingResponse(

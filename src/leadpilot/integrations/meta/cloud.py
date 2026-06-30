@@ -20,16 +20,21 @@ class CloudMetaAdapter(MetaAdapter):  # pragma: no cover - requires live Meta cr
         self._v = settings.meta_graph_api_version
         self._client = httpx.Client(timeout=20.0)
 
+    @property
+    def _auth_headers(self) -> dict:
+        # Bearer header keeps the token out of URLs / upstream access logs (vs ?access_token=).
+        return {"Authorization": f"Bearer {self._token}"}
+
     def _post(self, path: str, data: dict) -> dict:
         resp = self._client.post(
-            f"{_GRAPH}/{self._v}/{path}", data={**data, "access_token": self._token}
+            f"{_GRAPH}/{self._v}/{path}", data=data, headers=self._auth_headers
         )
         resp.raise_for_status()
         return resp.json()
 
     def _get(self, path: str, params: dict) -> dict:
         resp = self._client.get(
-            f"{_GRAPH}/{self._v}/{path}", params={**params, "access_token": self._token}
+            f"{_GRAPH}/{self._v}/{path}", params=params, headers=self._auth_headers
         )
         resp.raise_for_status()
         return resp.json()

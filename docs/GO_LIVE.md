@@ -1,4 +1,4 @@
-# LeadPilot — Go-Live Runbook
+# Salmor — Go-Live Runbook
 
 Everything in the codebase is built and tested in **mock mode** (real interfaces behind
 `MOCK_*`). This runbook takes it from "runs locally" to "serving a real paying pilot."

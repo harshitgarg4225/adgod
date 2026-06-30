@@ -1,4 +1,4 @@
-# Deploying LeadPilot on Railway
+# Deploying Salmor on Railway
 
 One repository, one Python image, **six services** + managed Postgres & Redis + an
 external Cloudflare R2 bucket. Provision in this order.

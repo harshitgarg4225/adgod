@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "LeadPilot — Saathi",
+  title: "Salmor — Saathi",
   description: "Qualified WhatsApp leads on autopilot for Indian SMBs.",
   manifest: undefined,
 };

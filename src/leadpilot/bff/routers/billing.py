@@ -31,11 +31,35 @@ def subscribe(body: SubscribeIn, principal: Principal = Depends(current_principa
     if not principal.account_id:
         raise NotFoundError("No account")
 
-    result = get_razorpay_adapter().create_subscription(tier=tier, account_id=principal.account_id)
     base, gst, total = with_gst(TIER_PRICE_PAISE[tier])
 
+    # Idempotency: if this account already has a live (TRIAL/ACTIVE) subscription on the
+    # same tier with a mandate, reuse it instead of creating a duplicate at Razorpay. This
+    # makes the endpoint safe under client double-submit and outbox replay (no double
+    # mandate / double charge).
+    live = {SubscriptionStatus.TRIAL.value, SubscriptionStatus.ACTIVE.value}
     with tenant_session(principal.tenant_id) as s:
         sub = s.scalar(select(Subscription).where(Subscription.account_id == principal.account_id))
+        existing_url = ""
+        if (
+            sub is not None
+            and sub.tier == tier
+            and sub.status in live
+            and sub.razorpay_subscription_id
+        ):
+            return {
+                "tier": tier,
+                "price_paise": base, "gst_paise": gst, "total_paise": total,
+                "price_display": format_paise(total),
+                "mandate_url": existing_url,  # mandate already authorised/in-flight
+                "razorpay_subscription_id": sub.razorpay_subscription_id,
+                "trial_days": TRIAL_DAYS,
+                "reused": True,
+            }
+
+        result = get_razorpay_adapter().create_subscription(
+            tier=tier, account_id=principal.account_id
+        )
         trial_end = datetime.now(UTC) + timedelta(days=TRIAL_DAYS)
         if sub is None:
             sub = Subscription(tenant_id=principal.tenant_id, account_id=principal.account_id)

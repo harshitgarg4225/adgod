@@ -19,8 +19,13 @@ def init_observability(service: str) -> None:
     _inited = True
     insecure = settings.insecure_secrets()
     if insecure and settings.is_production:
-        # Loud, actionable: dev-default secrets in production are a critical risk.
+        # Fail-closed: dev-default secrets in production are a critical risk (forgeable
+        # JWTs, decryptable Meta tokens). Refuse to boot rather than serve insecurely.
         log.error("INSECURE_SECRETS_IN_PRODUCTION", secrets=",".join(insecure))
+        raise SystemExit(
+            f"Refusing to start in production with dev-default secrets: {', '.join(insecure)}. "
+            "Set strong JWT_SECRET and TOKEN_ENCRYPTION_KEY environment variables."
+        )
     if settings.sentry_dsn:
         try:  # pragma: no cover - optional dependency
             import sentry_sdk

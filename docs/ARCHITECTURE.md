@@ -1,4 +1,4 @@
-# LeadPilot — Architecture & Build Plan (Railway)
+# Salmor — Architecture & Build Plan (Railway)
 
 This is the implementation architecture for `LeadPilot_PRD_v1`, adapted to run on
 **Railway**. It records the decisions, the service topology, the agent design, the

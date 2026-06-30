@@ -1,7 +1,7 @@
-# How LeadPilot beats the field
+# How Salmor beats the field
 
 The competitors in the PRD (§2.3) and the OSS references (§17.6) are **messaging tools**
-or **disconnected scripts**. LeadPilot is the only one that closes the full loop —
+or **disconnected scripts**. Salmor is the only one that closes the full loop —
 *generate the lead, qualify it, optimize the spend* — as one autonomous agent. This doc
 maps each rival's gap to a capability that is **already implemented and tested** in this
 repo (mock transport, real interfaces) or scheduled in the build plan.
@@ -11,7 +11,7 @@ repo (mock transport, real interfaces) or scheduled in the build plan.
 They are broadcast/CRM platforms: you bring the leads, they help you message. None *run
 ads* or *optimize spend*. WhatsApp is their product; for us it's the capture layer.
 
-| Capability | AiSensy / WATI / Interakt / Gupshup | LeadPilot | Status in repo |
+| Capability | AiSensy / WATI / Interakt / Gupshup | Salmor | Status in repo |
 |---|---|---|---|
 | **Generates leads** (runs CTWA ads) | ❌ you bring leads | ✅ Buyer launches CTWA campaigns on Meta | `saathi/pipeline.py::launch_campaigns` + `integrations/meta` |
 | **Autonomous optimization** toward cost/qualified-lead | ❌ | ✅ Optimizer CPL→CPQL, pause/scale/fatigue within hard bounds | `pipeline.py::run_optimization`, `guardrails/spend.py` |

@@ -33,22 +33,32 @@ def _client():
     return _redis or None
 
 
-def allow(action: str, identifier: str, *, limit: int, window_s: int) -> bool:
-    """Return True if under the limit. Fail-open on Redis errors."""
+def allow(
+    action: str, identifier: str, *, limit: int, window_s: int, fail_closed: bool = False
+) -> bool:
+    """Return True if under the limit.
+
+    `fail_closed=False` (default) fails OPEN on a Redis outage — correct for the lead/
+    webhook hot path, where a cache blip must never drop a paid lead. Security/cost-
+    sensitive callers (auth, OTP send, billing) pass `fail_closed=True` so an attacker
+    can't defeat the limit by knocking Redis over.
+    """
     client = _client()
     if client is None:
-        return True
+        return not fail_closed
     key = f"rl:{action}:{identifier}"
     try:
         n = client.incr(key)
         if n == 1:
             client.expire(key, window_s)
         return n <= limit
-    except Exception:  # pragma: no cover - never block on cache failure
-        return True
+    except Exception:  # pragma: no cover - cache failure
+        return not fail_closed
 
 
-def enforce(action: str, identifier: str, *, limit: int, window_s: int) -> None:
-    if not allow(action, identifier, limit=limit, window_s=window_s):
+def enforce(
+    action: str, identifier: str, *, limit: int, window_s: int, fail_closed: bool = False
+) -> None:
+    if not allow(action, identifier, limit=limit, window_s=window_s, fail_closed=fail_closed):
         log.warning("rate_limited", action=action)
         raise RateLimited(f"Rate limit exceeded for {action}")

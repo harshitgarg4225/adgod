@@ -1,10 +1,11 @@
-# LeadPilot — "Saathi"
+# Salmor — "Saathi"
 
 Autonomous AI ad-running & lead-generation agent for Indian Tier-2 SMBs.
 Give it ₹500/day and a 10-minute setup; it researches the business, writes
 vernacular ads, launches & optimizes Click-to-WhatsApp (CTWA) campaigns on Meta,
 and runs a 24/7 WhatsApp qualifier bot that turns clicks into **qualified** leads.
 
+> Salmor is the product brand; `leadpilot` remains the internal Python package name.
 > This repository is the implementation of `LeadPilot_PRD_v1`. It is built to be
 > hosted on **Railway**. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the
 > full architecture and the phased build plan.
@@ -98,4 +99,4 @@ pytest          # webhook idempotency, RLS isolation, outbox exactly-once, Close
 
 ## License
 
-Proprietary. © LeadPilot.
+Proprietary. © Salmor.

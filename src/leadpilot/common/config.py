@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # Runtime
     environment: str = Field(default="development")
     app_base_url: str = Field(default="http://localhost:8000")
+    web_base_url: str = Field(default="http://localhost:3000")
+    # Comma-separated allowed CORS origins in production. Empty → fall back to web_base_url.
+    cors_allowed_origins: str = Field(default="")
     log_level: str = Field(default="INFO")
     railway_region: str = Field(default="southeast-asia")
 
@@ -51,6 +54,8 @@ class Settings(BaseSettings):
     llm_creative_model: str = "gemini-1.5-flash"
     llm_closer_model: str = "gemini-1.5-flash"
     llm_daily_budget_per_account_paise: int = 5000
+    llm_max_output_tokens: int = 2048
+    llm_request_timeout_s: float = 30.0
 
     # Meta
     meta_app_id: str | None = None
@@ -123,6 +128,14 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+    @property
+    def requires_secure_webhooks(self) -> bool:
+        """Fail-closed posture: only an explicitly recognised local/dev/test environment
+        may accept unsigned webhooks. Any unknown or mis-spelled ENVIRONMENT value (e.g.
+        'prod', 'staging', '') is treated as needing signatures — so a typo can never
+        silently disable signature verification."""
+        return self.environment.lower() not in {"development", "dev", "test", "local"}
 
 
 @lru_cache

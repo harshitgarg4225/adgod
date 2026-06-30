@@ -42,10 +42,16 @@ def current_principal(
 
 
 def require_account_access(principal: Principal, account_id: str) -> None:
-    """Owners may only touch their own account (RLS is the backstop)."""
-    if principal.role in ("ADMIN", "OPS"):
+    """Owners may only touch their own account (RLS is the backstop).
+
+    PARTNER/ADMIN/OPS act tenant-wide (RLS confines them to their tenant). For an OWNER we
+    require an EXACT account match — a null `account_id` is treated as no-access rather than
+    all-access, closing an IDOR where an owner row with no bound account could reach any
+    account in the tenant.
+    """
+    if principal.role in ("ADMIN", "OPS", "PARTNER"):
         return
-    if principal.account_id and principal.account_id != account_id:
+    if principal.account_id is None or principal.account_id != account_id:
         raise ForbiddenError("Not your account")
 
 

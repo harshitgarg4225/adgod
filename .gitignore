@@ -41,3 +41,7 @@ yarn-error.log*
 *.sqlite3
 /tmp-assets/
 .railway/
+
+# Redis snapshot (must never be committed)
+dump.rdb
+*.rdb
