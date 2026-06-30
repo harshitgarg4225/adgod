@@ -1,0 +1,144 @@
+"""Owner self-service: edit business details/budget/language, control autopilot, and the
+pause/resume kill-switch (PRD §6.7, §12 — trust). Everything here is owner-facing and
+account-scoped; RLS confines writes to the owner's own tenant."""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+
+from leadpilot.bff.deps import Principal, current_principal, require_account_access
+from leadpilot.common.errors import NotFoundError, ValidationError
+from leadpilot.common.i18n import SUPPORTED_LOCALES
+from leadpilot.core.db import tenant_session
+from leadpilot.core.enums import AccountPhase, AutopilotLevel
+from leadpilot.core.models import Account, BusinessProfile, Subscription
+from leadpilot.core.money import format_paise
+
+router = APIRouter(tags=["settings"])
+
+# Phases from which a pause is meaningful, and the phase we restore to on resume.
+_RESUMABLE = {AccountPhase.LIVE.value, AccountPhase.OPTIMIZING.value,
+              AccountPhase.FATIGUE_REFRESH.value}
+
+
+class SettingsOut(BaseModel):
+    business_name: str
+    category: str
+    offer: str | None
+    service_area_city: str | None
+    service_radius_km: int
+    daily_budget_paise: int
+    daily_budget_display: str
+    default_language: str
+    autopilot_level: str
+    phase: str
+    paused: bool
+    subscription_tier: str | None
+    subscription_status: str | None
+
+
+class SettingsPatch(BaseModel):
+    business_name: str | None = Field(default=None, max_length=200)
+    offer: str | None = Field(default=None, max_length=2000)
+    service_area_city: str | None = Field(default=None, max_length=80)
+    service_radius_km: int | None = Field(default=None, ge=1, le=100)
+    daily_budget_paise: int | None = Field(default=None, ge=10000)  # ≥ ₹100/day
+    default_language: str | None = None
+    autopilot_level: str | None = None
+
+
+def _load(session, account_id: str) -> tuple[Account, BusinessProfile | None, Subscription | None]:
+    account = session.get(Account, account_id)
+    if account is None:
+        raise NotFoundError("Account not found")
+    profile = session.scalar(
+        select(BusinessProfile).where(BusinessProfile.account_id == account_id)
+    )
+    sub = session.scalar(select(Subscription).where(Subscription.account_id == account_id))
+    return account, profile, sub
+
+
+@router.get("/accounts/{account_id}/settings", response_model=SettingsOut)
+def get_settings(account_id: str, principal: Principal = Depends(current_principal)) -> SettingsOut:
+    require_account_access(principal, account_id)
+    with tenant_session(principal.tenant_id) as s:
+        account, profile, sub = _load(s, account_id)
+        budget = profile.daily_budget_paise if profile else 0
+        return SettingsOut(
+            business_name=account.business_name,
+            category=account.category,
+            offer=profile.offer if profile else None,
+            service_area_city=profile.service_area_city if profile else None,
+            service_radius_km=profile.service_radius_km if profile else 10,
+            daily_budget_paise=budget,
+            daily_budget_display=format_paise(budget),
+            default_language=account.default_language,
+            autopilot_level=account.autopilot_level,
+            phase=account.phase,
+            paused=account.phase == AccountPhase.PAUSED.value,
+            subscription_tier=sub.tier if sub else None,
+            subscription_status=sub.status if sub else None,
+        )
+
+
+@router.patch("/accounts/{account_id}/settings", response_model=SettingsOut)
+def update_settings(
+    account_id: str, patch: SettingsPatch, principal: Principal = Depends(current_principal)
+) -> SettingsOut:
+    require_account_access(principal, account_id)
+    if patch.default_language and patch.default_language not in SUPPORTED_LOCALES:
+        raise ValidationError(f"Unsupported language: {patch.default_language}")
+    if patch.autopilot_level and patch.autopilot_level not in {a.value for a in AutopilotLevel}:
+        raise ValidationError(f"Invalid autopilot level: {patch.autopilot_level}")
+    with tenant_session(principal.tenant_id) as s:
+        account, profile, _ = _load(s, account_id)
+        if patch.business_name is not None:
+            account.business_name = patch.business_name
+        if patch.default_language is not None:
+            account.default_language = patch.default_language
+        if patch.autopilot_level is not None:
+            account.autopilot_level = patch.autopilot_level
+        if profile is None and (patch.offer or patch.service_area_city or patch.daily_budget_paise):
+            profile = BusinessProfile(tenant_id=account.tenant_id, account_id=account.id)
+            s.add(profile)
+        if profile is not None:
+            if patch.offer is not None:
+                profile.offer = patch.offer
+            if patch.service_area_city is not None:
+                profile.service_area_city = patch.service_area_city
+            if patch.service_radius_km is not None:
+                profile.service_radius_km = patch.service_radius_km
+            if patch.daily_budget_paise is not None:
+                profile.daily_budget_paise = patch.daily_budget_paise
+    return get_settings(account_id, principal)
+
+
+class PauseOut(BaseModel):
+    phase: str
+    paused: bool
+
+
+@router.post("/accounts/{account_id}/pause", response_model=PauseOut)
+def pause(account_id: str, principal: Principal = Depends(current_principal)) -> PauseOut:
+    """Owner kill-switch: stop all ad spend immediately. The optimizer/launcher skip
+    PAUSED accounts, so this halts autonomous spend until the owner resumes."""
+    require_account_access(principal, account_id)
+    with tenant_session(principal.tenant_id) as s:
+        account = s.get(Account, account_id)
+        if account is None:
+            raise NotFoundError("Account not found")
+        account.phase = AccountPhase.PAUSED.value
+        return PauseOut(phase=account.phase, paused=True)
+
+
+@router.post("/accounts/{account_id}/resume", response_model=PauseOut)
+def resume(account_id: str, principal: Principal = Depends(current_principal)) -> PauseOut:
+    require_account_access(principal, account_id)
+    with tenant_session(principal.tenant_id) as s:
+        account = s.get(Account, account_id)
+        if account is None:
+            raise NotFoundError("Account not found")
+        # Resume into the optimizing loop (Saathi re-takes the wheel).
+        account.phase = AccountPhase.OPTIMIZING.value
+        return PauseOut(phase=account.phase, paused=False)

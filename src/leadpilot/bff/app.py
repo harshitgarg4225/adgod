@@ -9,7 +9,18 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from leadpilot.bff.routers import admin, agents, auth, billing, leads, onboarding, partner
+from leadpilot.bff.routers import (
+    admin,
+    agents,
+    auth,
+    billing,
+    leads,
+    onboarding,
+    partner,
+)
+from leadpilot.bff.routers import (
+    settings as settings_router,
+)
 from leadpilot.common.config import settings
 from leadpilot.common.errors import AppError, app_error_handler, unhandled_error_handler
 from leadpilot.common.i18n import normalize_locale
@@ -63,6 +74,7 @@ API = "/api/v1"
 app.include_router(auth.router, prefix=API)
 app.include_router(onboarding.router, prefix=API)
 app.include_router(leads.router, prefix=API)
+app.include_router(settings_router.router, prefix=API)
 app.include_router(agents.router, prefix=API)
 app.include_router(billing.router, prefix=API)
 app.include_router(partner.router, prefix=API)

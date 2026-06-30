@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -21,8 +21,16 @@ from leadpilot.bff.schemas import (
 )
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.core.db import tenant_session
-from leadpilot.core.enums import LeadScore, LeadStatus, OwnerAction
-from leadpilot.core.models import Conversation, Lead, Message, Notification
+from leadpilot.core.enums import AccountPhase, LeadScore, LeadStatus, OwnerAction
+from leadpilot.core.models import (
+    Account,
+    AdInsight,
+    BusinessProfile,
+    Conversation,
+    Lead,
+    Message,
+    Notification,
+)
 from leadpilot.core.money import format_paise
 
 router = APIRouter(tags=["leads"])
@@ -144,17 +152,79 @@ def home(account_id: str, principal: Principal = Depends(current_principal)) -> 
                 Lead.status.in_(qualified),
             )
         ) or 0
-    # Spend/CPQL come from ad_insights in Phase 2/3; 0 in the walking skeleton.
-    spend = 0
+        # Real spend from ad_insights (account level) for today.
+        spend = int(session.scalar(
+            select(func.coalesce(func.sum(AdInsight.spend_paise), 0)).where(
+                AdInsight.account_id == account_id,
+                AdInsight.level == "ACCOUNT",
+                AdInsight.date >= start,
+            )
+        ) or 0)
+        # Last 7 days spend, oldest→newest, for the dashboard sparkline.
+        week_start = start - timedelta(days=6)
+        per_day = dict(session.execute(
+            select(func.date(AdInsight.date), func.coalesce(func.sum(AdInsight.spend_paise), 0))
+            .where(AdInsight.account_id == account_id, AdInsight.level == "ACCOUNT",
+                   AdInsight.date >= week_start)
+            .group_by(func.date(AdInsight.date))
+        ).all())
+        spend_trend = [
+            int(per_day.get((week_start + timedelta(days=i)).date(), 0)) for i in range(7)
+        ]
+        account = session.get(Account, account_id)
+        profile = session.scalar(
+            select(BusinessProfile).where(BusinessProfile.account_id == account_id)
+        )
+        unread = int(session.scalar(
+            select(func.count(Notification.id)).where(
+                Notification.account_id == account_id, Notification.read_at.is_(None)
+            )
+        ) or 0)
+
+    phase = account.phase if account else AccountPhase.SIGNED_UP.value
+    paused = phase == AccountPhase.PAUSED.value
+    daily_budget = profile.daily_budget_paise if profile else 0
+    cpql = (spend // qualified_today) if qualified_today else None
     return HomeOut(
         today_spend_paise=spend,
         today_spend_display=format_paise(spend),
         enquiries_today=int(enquiries),
         qualified_today=int(qualified_today),
-        cpql_paise=None,
-        cpql_display=None,
-        campaign_status=["In review"],
+        cpql_paise=cpql,
+        cpql_display=format_paise(cpql) if cpql is not None else None,
+        campaign_status=_phase_status(phase),
+        phase=phase,
+        autopilot_level=account.autopilot_level if account else "ASSISTED",
+        paused=paused,
+        daily_budget_paise=daily_budget,
+        daily_budget_display=format_paise(daily_budget),
+        saathi_status=_saathi_status(phase, paused, int(qualified_today)),
+        unread_notifications=unread,
+        spend_trend=spend_trend,
     )
+
+
+def _phase_status(phase: str) -> list[str]:
+    return {
+        AccountPhase.SIGNED_UP.value: ["Finish setup"],
+        AccountPhase.ONBOARDING.value: ["Finishing setup"],
+        AccountPhase.PENDING_APPROVAL.value: ["In review"],
+        AccountPhase.LIVE.value: ["Live"],
+        AccountPhase.OPTIMIZING.value: ["Live", "Optimizing"],
+        AccountPhase.PAUSED.value: ["Paused"],
+    }.get(phase, [phase.replace("_", " ").title()])
+
+
+def _saathi_status(phase: str, paused: bool, qualified_today: int) -> str:
+    if paused:
+        return "Your ads are paused. Resume whenever you're ready."
+    if phase in (AccountPhase.SIGNED_UP.value, AccountPhase.ONBOARDING.value):
+        return "Let's finish setting up so I can start finding leads for you."
+    if phase == AccountPhase.PENDING_APPROVAL.value:
+        return "Your ads are in review — I'll start them the moment they're approved."
+    if qualified_today:
+        return f"I've qualified {qualified_today} lead(s) for you today. Keep going! 🎉"
+    return "I'm watching your ads 24×7 and qualifying every lead that comes in."
 
 
 @router.get("/accounts/{account_id}/leads/export.csv")
@@ -202,3 +272,21 @@ def notifications(
             )
             for n in rows
         ]
+
+
+@router.post("/accounts/{account_id}/notifications/read")
+def mark_notifications_read(
+    account_id: str, principal: Principal = Depends(current_principal)
+) -> dict:
+    """Mark all of the account's notifications read (clears the unread badge)."""
+    require_account_access(principal, account_id)
+    now = datetime.now(UTC)
+    with tenant_session(principal.tenant_id) as session:
+        rows = session.scalars(
+            select(Notification).where(
+                Notification.account_id == account_id, Notification.read_at.is_(None)
+            )
+        ).all()
+        for n in rows:
+            n.read_at = now
+    return {"marked": len(rows)}

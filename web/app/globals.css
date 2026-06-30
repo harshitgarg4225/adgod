@@ -4,13 +4,81 @@
 
 :root {
   color-scheme: light;
+  --app-max: 30rem; /* mobile-first column width */
 }
 
-body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-slate-50 text-ink antialiased font-sans;
+  }
+  /* Visible, consistent focus for keyboard/switch users (was missing entirely). */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-400 ring-offset-2 ring-offset-white rounded-lg;
+  }
+  /* Devanagari content opts into the Hindi-capable face. */
+  [lang="hi"],
+  .deva {
+    @apply font-deva;
+  }
+  ::selection {
+    @apply bg-brand-100 text-brand-800;
+  }
 }
 
-/* Large tap targets for low-literacy, mobile-first users (PRD §12). */
-.tap {
-  @apply min-h-[48px] px-4 rounded-xl;
+@layer components {
+  /* Large tap targets for low-literacy, mobile-first users (PRD §12). */
+  .tap {
+    @apply inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-4
+      text-base font-semibold transition active:scale-[0.98];
+  }
+  /* The app frame: a centered mobile column with safe-area padding. */
+  .app-frame {
+    @apply mx-auto min-h-[100dvh] w-full bg-slate-50;
+    max-width: var(--app-max);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* Bottom-anchored CTA that respects the home indicator. */
+  .cta-dock {
+    @apply fixed inset-x-0 bottom-0 z-30 mx-auto border-t border-slate-100 bg-white/90
+      px-5 pt-3 backdrop-blur;
+    max-width: var(--app-max);
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  /* Skeleton shimmer block. */
+  .skeleton {
+    @apply relative overflow-hidden rounded-xl bg-slate-200/70;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0 -translate-x-full;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.55),
+      transparent
+    );
+    animation: shimmer 1.4s infinite;
+  }
+}
+
+/* Respect users who prefer less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

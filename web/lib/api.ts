@@ -17,6 +17,8 @@ import type {
   Notification,
   PartnerSubAccount,
   Rollup,
+  Settings,
+  SettingsPatch,
   SubscribeResult,
   SubscriptionInfo,
   Tier,
@@ -26,8 +28,8 @@ import type {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api/v1";
 
-const ACCESS_KEY = "lp_access";
-const USER_KEY = "lp_user";
+const ACCESS_KEY = "salmor_access";
+const USER_KEY = "salmor_user";
 
 export function saveSession(t: TokenResponse) {
   localStorage.setItem(ACCESS_KEY, t.access);
@@ -67,12 +69,20 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!res.ok) {
-    let userMessage = "Something went wrong.";
+    let userMessage = "Something went wrong. Please try again in a moment.";
     try {
       const body = await res.json();
       userMessage = body.user_message || body.detail || userMessage;
     } catch {
       /* ignore */
+    }
+    // Centralised 401 handling: an expired/invalid session bounces to login from any
+    // screen instead of stranding the user on a broken page.
+    if (res.status === 401 && typeof window !== "undefined") {
+      clearSession();
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
     }
     throw new ApiError(res.status, userMessage);
   }
@@ -92,10 +102,14 @@ export const api = {
       body: JSON.stringify({ phone, code }),
     }),
   home: (accountId: string) => req<Home>(`/accounts/${accountId}/home`),
-  leads: (accountId: string, q?: string) =>
-    req<LeadListItem[]>(
-      `/accounts/${accountId}/leads${q ? `?q=${encodeURIComponent(q)}` : ""}`
-    ),
+  leads: (accountId: string, opts?: { q?: string; status?: string; score?: string }) => {
+    const p = new URLSearchParams();
+    if (opts?.q) p.set("q", opts.q);
+    if (opts?.status) p.set("status", opts.status);
+    if (opts?.score) p.set("score", opts.score);
+    const qs = p.toString();
+    return req<LeadListItem[]>(`/accounts/${accountId}/leads${qs ? `?${qs}` : ""}`);
+  },
   lead: (leadId: string) => req<LeadDetail>(`/leads/${leadId}`),
   patchLead: (leadId: string, patch: { owner_action?: string; status?: string }) =>
     req<LeadDetail>(`/leads/${leadId}`, {
@@ -104,6 +118,20 @@ export const api = {
     }),
   notifications: (accountId: string) =>
     req<Notification[]>(`/accounts/${accountId}/notifications`),
+  markNotificationsRead: (accountId: string) =>
+    req<{ marked: number }>(`/accounts/${accountId}/notifications/read`, { method: "POST" }),
+
+  // Owner self-service settings + kill-switch
+  settings: (accountId: string) => req<Settings>(`/accounts/${accountId}/settings`),
+  updateSettings: (accountId: string, patch: Partial<SettingsPatch>) =>
+    req<Settings>(`/accounts/${accountId}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  pauseAccount: (accountId: string) =>
+    req<{ phase: string; paused: boolean }>(`/accounts/${accountId}/pause`, { method: "POST" }),
+  resumeAccount: (accountId: string) =>
+    req<{ phase: string; paused: boolean }>(`/accounts/${accountId}/resume`, { method: "POST" }),
 
   // Onboarding
   setBusiness: (body: BusinessInput) =>

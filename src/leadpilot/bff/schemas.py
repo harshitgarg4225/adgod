@@ -88,6 +88,15 @@ class HomeOut(BaseModel):
     cpql_paise: int | None
     cpql_display: str | None
     campaign_status: list[str]
+    # Owner-control + Saathi presence (drives the dashboard's home experience).
+    phase: str
+    autopilot_level: str
+    paused: bool
+    daily_budget_paise: int
+    daily_budget_display: str
+    saathi_status: str
+    unread_notifications: int
+    spend_trend: list[int] = []  # last 7 days spend in paise, for the sparkline
 
 
 class NotificationOut(BaseModel):

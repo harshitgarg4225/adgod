@@ -3,15 +3,37 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, clearSession, getUser } from "@/lib/api";
+import { api, getUser } from "@/lib/api";
 import type { Home, LeadListItem } from "@/lib/types";
-import { EmptyState, ErrorState, Loading, ScoreBadge } from "@/components/ui";
+import { useT } from "@/lib/i18n";
+import {
+  BottomNav,
+  Card,
+  ConfirmDialog,
+  EmptyState,
+  ErrorState,
+  Icon,
+  OfflineBanner,
+  SaathiAvatar,
+  SaathiStatusCard,
+  ScoreBadge,
+  Skeleton,
+  SkeletonCard,
+  Sparkline,
+  Stat,
+  Switch,
+  useToast,
+} from "@/components/ui";
 
 export default function Dashboard() {
   const router = useRouter();
+  const t = useT();
+  const toast = useToast();
   const [home, setHome] = useState<Home | null>(null);
   const [leads, setLeads] = useState<LeadListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmPause, setConfirmPause] = useState(false);
+  const [busyPause, setBusyPause] = useState(false);
 
   const load = useCallback(async () => {
     const user = getUser();
@@ -28,122 +50,219 @@ export default function Dashboard() {
       setHome(h);
       setLeads(l);
     } catch (e: any) {
-      if (e.status === 401) {
-        clearSession();
-        router.replace("/login");
-        return;
-      }
-      setError(e.userMessage || "Could not load your dashboard");
+      setError(e.userMessage || t("common.somethingWrong", "Could not load your dashboard."));
     }
-  }, [router]);
+  }, [router, t]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  if (error) return <ErrorState message={error} onRetry={load} />;
-  if (!home || !leads) return <Loading label="Loading your leads…" />;
+  async function togglePause(next: boolean) {
+    const user = getUser();
+    if (!user?.account_id || !home) return;
+    setBusyPause(true);
+    try {
+      const r = next
+        ? await api.pauseAccount(user.account_id)
+        : await api.resumeAccount(user.account_id);
+      setHome({ ...home, paused: r.paused, phase: r.phase });
+      toast.show(
+        next
+          ? t("dashboard.pausedToast", "Ads paused. You're in control.")
+          : t("dashboard.resumedToast", "Ads resumed — Saathi is back on it. 🎉"),
+        next ? "info" : "success"
+      );
+    } catch (e: any) {
+      toast.show(e.userMessage || t("common.somethingWrong", "Something went wrong."), "error");
+    } finally {
+      setBusyPause(false);
+      setConfirmPause(false);
+    }
+  }
+
+  const name = getUser()?.name || t("dashboard.owner", "Owner");
 
   return (
-    <main className="pb-10">
-      <header className="bg-brand px-5 pb-6 pt-5 text-white">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs opacity-80">Namaste 👋</p>
-            <h1 className="text-xl font-bold">{getUser()?.name || "Owner"}</h1>
-          </div>
-          <button
-            onClick={() => {
-              clearSession();
-              router.replace("/login");
-            }}
-            className="text-xs underline opacity-80"
-          >
-            Logout
-          </button>
-        </div>
+    <main className="min-h-[100dvh] pb-28">
+      <OfflineBanner />
 
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          <Stat label="Spent today" value={home.today_spend_display} />
-          <Stat label="Enquiries" value={String(home.enquiries_today)} />
-          <Stat label="Qualified" value={String(home.qualified_today)} />
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {home.campaign_status.map((s) => (
-            <span key={s} className="rounded-full bg-white/20 px-3 py-1 text-xs">
-              {s}
-            </span>
-          ))}
-          {home.cpql_display && (
-            <span className="rounded-full bg-white/20 px-3 py-1 text-xs">
-              CPQL {home.cpql_display}
-            </span>
-          )}
+      {/* Header */}
+      <header className="bg-gradient-to-br from-brand to-brand-700 px-5 pb-6 pt-5 text-white">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <SaathiAvatar size={40} />
+            <div>
+              <p className="text-sm text-white/80">{t("dashboard.greeting", "Namaste")} 👋</p>
+              <h1 className="text-xl font-bold leading-tight">{name}</h1>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Link
+              href="/notifications"
+              aria-label="Notifications"
+              className="relative flex h-10 w-10 items-center justify-center rounded-full hover:bg-white/10"
+            >
+              <Icon name="bell" />
+              {!!home?.unread_notifications && (
+                <span className="absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-2xs font-bold">
+                  {home.unread_notifications}
+                </span>
+              )}
+            </Link>
+            <Link
+              href="/settings"
+              aria-label="Settings"
+              className="flex h-10 w-10 items-center justify-center rounded-full hover:bg-white/10"
+            >
+              <Icon name="settings" />
+            </Link>
+          </div>
         </div>
       </header>
 
-      <nav className="grid grid-cols-3 gap-2 px-4 pt-4">
-        <Quick href="/onboarding" icon="✨" label="Set up ads" />
-        <Quick href="/reports" icon="📊" label="Reports" />
-        <Quick href="/billing" icon="💳" label="Billing" />
-        {(getUser()?.role === "PARTNER" || getUser()?.role === "ADMIN") && (
-          <Quick href="/partner" icon="🧑‍💼" label="Clients" />
+      {/* Saathi status + spend safety */}
+      <section className="-mt-4 space-y-3 px-4">
+        {home ? (
+          <SaathiStatusCard line={home.saathi_status} />
+        ) : (
+          <Skeleton className="h-16 w-full rounded-2xl" />
         )}
-        {(getUser()?.role === "ADMIN" || getUser()?.role === "OPS") && (
-          <Quick href="/admin" icon="🛠️" label="Admin" />
-        )}
-      </nav>
 
-      <section className="px-4 pt-4">
-        <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">
-          Leads
-        </h2>
-        {leads.length === 0 ? (
-          <EmptyState title="No leads yet" hint="Your ads are live — leads will appear here." />
+        {error && !home ? (
+          <ErrorState message={error} onRetry={load} />
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-2.5">
+              {home ? (
+                <>
+                  <Stat label={t("dashboard.spentToday", "Spent today")} value={home.today_spend_display} tone="brand" />
+                  <Stat label={t("dashboard.leadsToday", "Leads today")} value={String(home.qualified_today)} />
+                  <Stat
+                    label={t("dashboard.costPerLead", "Cost / lead")}
+                    value={home.cpql_display || "—"}
+                  />
+                </>
+              ) : (
+                <>
+                  <SkeletonCard />
+                  <SkeletonCard />
+                  <SkeletonCard />
+                </>
+              )}
+            </div>
+
+            {/* Spend trend + budget safety */}
+            {home && (
+              <Card className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+                    {t("dashboard.spend7d", "Last 7 days")}
+                  </p>
+                  <p className="mt-0.5 text-sm text-ink-muted">
+                    {t("dashboard.dailyCap", "Daily cap")} {home.daily_budget_display}
+                  </p>
+                </div>
+                {home.spend_trend?.some((v) => v > 0) ? (
+                  <Sparkline points={home.spend_trend.map((p) => p / 100)} />
+                ) : (
+                  <span className="text-xs text-ink-faint">{t("dashboard.noSpendYet", "No spend yet")}</span>
+                )}
+              </Card>
+            )}
+
+            {/* Owner kill-switch */}
+            {home && (
+              <Card className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Icon name="shield" className="h-6 w-6 text-brand" />
+                  <div>
+                    <p className="font-semibold">
+                      {home.paused
+                        ? t("dashboard.adsPaused", "Ads are paused")
+                        : t("dashboard.adsRunning", "Ads are running")}
+                    </p>
+                    <p className="text-xs text-ink-muted">
+                      {t("dashboard.youControl", "You're always in control of spend.")}
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={!home.paused}
+                  label="Toggle ads"
+                  onChange={(next) => {
+                    if (!next) setConfirmPause(true);
+                    else togglePause(false);
+                  }}
+                />
+              </Card>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* Leads */}
+      <section className="px-4 pt-5">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
+            {t("dashboard.recentLeads", "Recent leads")}
+          </h2>
+          <Link href="/leads" className="text-sm font-semibold text-brand">
+            {t("common.seeAll", "See all")}
+          </Link>
+        </div>
+        {!leads ? (
+          <div className="space-y-2">
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+        ) : leads.length === 0 ? (
+          <EmptyState
+            title={t("dashboard.noLeadsTitle", "No leads yet")}
+            hint={t("dashboard.noLeads", "Your ads are live — your first lead will appear here soon.")}
+            icon="leads"
+          />
         ) : (
           <ul className="flex flex-col gap-2">
-            {leads.map((lead) => (
+            {leads.slice(0, 6).map((lead) => (
               <li key={lead.id}>
                 <Link
                   href={`/leads/${lead.id}`}
-                  className="flex items-center justify-between rounded-2xl border bg-white p-3 active:bg-slate-50"
+                  className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white p-3.5 shadow-card transition hover:shadow-elevated active:scale-[0.99]"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="truncate font-semibold">
-                        {lead.name || "New enquiry"}
+                        {lead.name || t("leads.newEnquiry", "New enquiry")}
                       </span>
                       <ScoreBadge score={lead.score} />
                     </div>
-                    <p className="truncate text-sm text-slate-500">
+                    <p className="mt-0.5 truncate text-sm text-ink-muted">
                       {lead.intent_summary || lead.status}
                     </p>
                   </div>
-                  <span className="text-slate-300">›</span>
+                  <Icon name="chevronRight" className="h-5 w-5 shrink-0 text-ink-faint" />
                 </Link>
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      <ConfirmDialog
+        open={confirmPause}
+        title={t("dashboard.pauseConfirmTitle", "Pause all ads?")}
+        body={t(
+          "dashboard.pauseConfirmBody",
+          "Saathi will stop spending immediately. You can resume anytime — no money is lost."
+        )}
+        confirmLabel={busyPause ? t("common.saving", "Pausing…") : t("dashboard.pauseAds", "Pause ads")}
+        tone="danger"
+        onConfirm={() => togglePause(true)}
+        onClose={() => setConfirmPause(false)}
+      />
+
+      <BottomNav active="/dashboard" />
     </main>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-white/15 p-3">
-      <p className="text-[10px] uppercase opacity-80">{label}</p>
-      <p className="text-lg font-bold">{value}</p>
-    </div>
-  );
-}
-
-function Quick({ href, icon, label }: { href: string; icon: string; label: string }) {
-  return (
-    <Link href={href} className="flex flex-col items-center gap-1 rounded-2xl border p-3 active:bg-slate-50">
-      <span className="text-xl">{icon}</span>
-      <span className="text-xs font-medium text-slate-600">{label}</span>
-    </Link>
   );
 }

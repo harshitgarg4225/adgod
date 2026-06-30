@@ -59,6 +59,40 @@ export interface Home {
   cpql_paise: number | null;
   cpql_display: string | null;
   campaign_status: string[];
+  phase: string;
+  autopilot_level: string;
+  paused: boolean;
+  daily_budget_paise: number;
+  daily_budget_display: string;
+  saathi_status: string;
+  unread_notifications: number;
+  spend_trend: number[];
+}
+
+export interface Settings {
+  business_name: string;
+  category: string;
+  offer: string | null;
+  service_area_city: string | null;
+  service_radius_km: number;
+  daily_budget_paise: number;
+  daily_budget_display: string;
+  default_language: string;
+  autopilot_level: string;
+  phase: string;
+  paused: boolean;
+  subscription_tier: string | null;
+  subscription_status: string | null;
+}
+
+export interface SettingsPatch {
+  business_name: string;
+  offer: string;
+  service_area_city: string;
+  service_radius_km: number;
+  daily_budget_paise: number;
+  default_language: string;
+  autopilot_level: string;
 }
 
 export interface Notification {

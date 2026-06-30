@@ -4,16 +4,30 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, getUser } from "@/lib/api";
 import type { SubscriptionInfo, Tier } from "@/lib/types";
-import { ErrorState, Loading, TopBar } from "@/components/ui";
+import { useT } from "@/lib/i18n";
+import {
+  Badge,
+  BottomNav,
+  Button,
+  Card,
+  ErrorState,
+  Icon,
+  Loading,
+  OfflineBanner,
+  TopBar,
+  useToast,
+} from "@/components/ui";
 
-const COPY: Record<string, string> = {
-  STARTER: "1 campaign · daily report",
-  GROWTH: "CTWA + Lead Forms · WhatsApp bot · optimization · CRM",
-  PRO: "Multi-campaign · video · wallet · CSV export · priority support",
+const FEATURES: Record<string, string[]> = {
+  STARTER: ["1 campaign", "Daily WhatsApp report", "Lead inbox"],
+  GROWTH: ["Click-to-WhatsApp + Lead Forms", "24×7 WhatsApp qualifier", "Auto-optimisation", "Lead CRM"],
+  PRO: ["Everything in Growth", "Multi-campaign + video", "Ad wallet", "CSV export", "Priority support"],
 };
 
 export default function Billing() {
   const router = useRouter();
+  const t = useT();
+  const toast = useToast();
   const [tiers, setTiers] = useState<Tier[] | null>(null);
   const [sub, setSub] = useState<SubscriptionInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,13 +37,13 @@ export default function Billing() {
     if (!getUser()?.account_id) return router.replace("/login");
     setError(null);
     try {
-      const [t, s] = await Promise.all([api.tiers(), api.subscription()]);
-      setTiers(t);
+      const [tt, s] = await Promise.all([api.tiers(), api.subscription()]);
+      setTiers(tt);
       setSub(s);
     } catch (e: any) {
-      setError(e.userMessage || "Could not load billing");
+      setError(e.userMessage || t("common.somethingWrong", "Could not load billing."));
     }
-  }, [router]);
+  }, [router, t]);
 
   useEffect(() => {
     load();
@@ -39,48 +53,104 @@ export default function Billing() {
     setBusy(tier);
     try {
       const r = await api.subscribe(tier);
-      // Open the UPI-mandate authorization page.
-      window.location.href = r.mandate_url;
+      if (r.mandate_url) {
+        window.location.href = r.mandate_url;
+      } else {
+        toast.show(t("billing.activated", "Plan activated. Welcome aboard! 🎉"));
+        await load();
+        setBusy(null);
+      }
     } catch (e: any) {
-      setError(e.userMessage || "Could not start subscription");
+      toast.show(e.userMessage || t("common.somethingWrong", "Could not start subscription."), "error");
       setBusy(null);
     }
   }
 
-  if (error) return <ErrorState message={error} onRetry={load} />;
-  if (!tiers || !sub) return <Loading />;
+  if (error && !tiers)
+    return (
+      <main className="min-h-[100dvh]">
+        <TopBar title={t("nav.billing", "Plans & billing")} back="/dashboard" />
+        <ErrorState message={error} onRetry={load} />
+      </main>
+    );
+  if (!tiers || !sub) return <Loading label={t("common.loading", "Loading…")} />;
 
   return (
-    <main className="pb-10">
-      <TopBar title="Plans & billing" back="/dashboard" />
+    <main className="min-h-[100dvh] pb-28">
+      <OfflineBanner />
+      <TopBar title={t("nav.billing", "Plans & billing")} back="/dashboard" />
       <section className="space-y-3 p-4">
         {sub.status !== "NONE" && (
-          <div className="rounded-2xl bg-brand-light p-3 text-sm">
-            Current plan: <b>{sub.tier}</b> · {sub.status}
-            {sub.trial_end && <> · trial ends {new Date(sub.trial_end).toLocaleDateString()}</>}
-          </div>
+          <Card className="flex items-center justify-between !bg-brand-50">
+            <div>
+              <p className="text-sm text-ink-muted">{t("billing.currentPlan", "Current plan")}</p>
+              <p className="font-bold">
+                {sub.tier} · {sub.status}
+              </p>
+              {sub.trial_end && (
+                <p className="text-xs text-ink-muted">
+                  {t("billing.trialEnds", "Trial ends")}{" "}
+                  {new Date(sub.trial_end).toLocaleDateString("en-IN")}
+                </p>
+              )}
+            </div>
+            <Icon name="check" className="h-7 w-7 text-brand" />
+          </Card>
         )}
-        {tiers.map((t) => {
-          const active = sub.tier === t.tier;
+
+        {tiers.map((tier, idx) => {
+          const active = sub.tier === tier.tier;
+          const popular = tier.tier === "GROWTH";
           return (
-            <article key={t.tier} className={`rounded-2xl border p-4 ${active ? "border-brand" : ""}`}>
+            <Card
+              key={tier.tier}
+              className={`relative ${active ? "!border-brand ring-1 ring-brand" : popular ? "!border-accent-200" : ""}`}
+            >
+              {popular && !active && (
+                <div className="absolute -top-2.5 right-4">
+                  <Badge tone="accent">{t("billing.popular", "Most popular")}</Badge>
+                </div>
+              )}
               <div className="flex items-baseline justify-between">
-                <h2 className="text-lg font-bold">{t.tier}</h2>
-                <span className="font-semibold">{t.price_display}/mo</span>
+                <h2 className="text-lg font-bold">{tier.tier}</h2>
+                <div className="text-right">
+                  <span className="text-xl font-bold">{tier.price_display}</span>
+                  <span className="text-sm text-ink-muted">/{t("billing.mo", "mo")}</span>
+                </div>
               </div>
-              <p className="mt-1 text-sm text-slate-500">{COPY[t.tier]}</p>
-              <p className="mt-1 text-xs text-slate-400">incl. 18% GST · 7-day free trial</p>
-              <button
-                onClick={() => subscribe(t.tier)}
+              <ul className="mt-3 space-y-1.5">
+                {(FEATURES[tier.tier] || []).map((f) => (
+                  <li key={f} className="flex items-center gap-2 text-sm text-ink-soft">
+                    <Icon name="check" className="h-4 w-4 text-brand" strokeWidth={2.5} />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-ink-faint">
+                {t("billing.gstTrial", "incl. 18% GST · 7-day free trial · cancel anytime")}
+              </p>
+              <Button
+                fullWidth
+                variant={active ? "secondary" : popular ? "accent" : "primary"}
                 disabled={!!busy || active}
-                className={`tap mt-3 w-full font-semibold ${active ? "bg-slate-100 text-slate-400" : "bg-brand text-white"}`}
+                loading={busy === tier.tier}
+                className="mt-3"
+                onClick={() => subscribe(tier.tier)}
               >
-                {active ? "Current plan" : busy === t.tier ? "Starting…" : "Choose plan (UPI)"}
-              </button>
-            </article>
+                {active
+                  ? t("billing.current", "Current plan")
+                  : t("billing.choosePlan", "Choose plan")}
+              </Button>
+            </Card>
           );
         })}
+
+        <div className="flex items-center justify-center gap-2 pt-1 text-xs text-ink-faint">
+          <Icon name="shield" className="h-4 w-4" />
+          {t("billing.securedRazorpay", "Secured by Razorpay · UPI Autopay")}
+        </div>
       </section>
+      <BottomNav active="/billing" />
     </main>
   );
 }

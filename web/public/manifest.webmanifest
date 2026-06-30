@@ -1,0 +1,14 @@
+{
+  "name": "Salmor — your Saathi for ads & leads",
+  "short_name": "Salmor",
+  "description": "Run ads and qualify WhatsApp leads on autopilot, built for Indian small businesses.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8FAFC",
+  "theme_color": "#0B7A4B",
+  "lang": "hi",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

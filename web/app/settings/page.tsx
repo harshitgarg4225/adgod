@@ -1,0 +1,266 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { api, clearSession, getUser } from "@/lib/api";
+import type { Settings } from "@/lib/types";
+import { LANGUAGES, useI18n } from "@/lib/i18n";
+import {
+  BottomNav,
+  Button,
+  Card,
+  ErrorState,
+  Icon,
+  Input,
+  Loading,
+  OfflineBanner,
+  Sheet,
+  TopBar,
+  Textarea,
+  useToast,
+} from "@/components/ui";
+
+const AUTOPILOT: { value: string; en: string; desc: string }[] = [
+  { value: "MANUAL", en: "Manual", desc: "Saathi suggests; you approve every change." },
+  { value: "ASSISTED", en: "Assisted", desc: "Saathi acts on small changes, asks for big ones." },
+  { value: "FULL", en: "Full", desc: "Saathi runs everything within your budget." },
+];
+
+export default function SettingsPage() {
+  const router = useRouter();
+  const { t, locale, setLocale } = useI18n();
+  const toast = useToast();
+  const [s, setS] = useState<Settings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
+
+  // Editable form state
+  const [name, setName] = useState("");
+  const [offer, setOffer] = useState("");
+  const [city, setCity] = useState("");
+  const [budget, setBudget] = useState(500);
+
+  const acc = getUser()?.account_id;
+
+  const load = useCallback(async () => {
+    if (!acc) {
+      router.replace("/login");
+      return;
+    }
+    setError(null);
+    try {
+      const data = await api.settings(acc);
+      setS(data);
+      setName(data.business_name);
+      setOffer(data.offer || "");
+      setCity(data.service_area_city || "");
+      setBudget(Math.round(data.daily_budget_paise / 100) || 500);
+    } catch (e: any) {
+      setError(e.userMessage || t("common.somethingWrong", "Could not load settings."));
+    }
+  }, [acc, router, t]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function save(patch: Record<string, unknown>, successMsg: string) {
+    if (!acc) return;
+    setBusy(true);
+    try {
+      const next = await api.updateSettings(acc, patch as any);
+      setS(next);
+      toast.show(successMsg);
+    } catch (e: any) {
+      toast.show(e.userMessage || t("common.somethingWrong", "Could not save."), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error && !s) {
+    return (
+      <main className="min-h-[100dvh]">
+        <TopBar title={t("settings.title", "Settings")} back="/dashboard" />
+        <ErrorState message={error} onRetry={load} />
+      </main>
+    );
+  }
+  if (!s) return <Loading label={t("common.loading", "Loading…")} />;
+
+  return (
+    <main className="min-h-[100dvh] pb-28">
+      <OfflineBanner />
+      <TopBar title={t("settings.title", "Settings")} back="/dashboard" />
+
+      <div className="space-y-4 px-4 pt-4">
+        {/* Business */}
+        <Card className="space-y-4">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
+            {t("settings.business", "Business details")}
+          </h2>
+          <Input
+            label={t("settings.businessName", "Business name")}
+            value={name}
+            voice
+            onChange={(e) => setName(e.target.value)}
+          />
+          <Textarea
+            label={t("settings.offer", "What you offer")}
+            value={offer}
+            voice
+            rows={3}
+            onChange={(e) => setOffer(e.target.value)}
+          />
+          <Input
+            label={t("settings.city", "City / service area")}
+            value={city}
+            voice
+            onChange={(e) => setCity(e.target.value)}
+          />
+          <Button
+            loading={busy}
+            onClick={() =>
+              save(
+                { business_name: name, offer, service_area_city: city },
+                t("settings.savedBusiness", "Business details saved.")
+              )
+            }
+          >
+            {t("common.save", "Save")}
+          </Button>
+        </Card>
+
+        {/* Budget */}
+        <Card className="space-y-3">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
+            {t("settings.budget", "Daily budget")}
+          </h2>
+          <div className="flex items-baseline justify-between">
+            <span className="text-2xl font-bold text-brand">₹{budget.toLocaleString("en-IN")}</span>
+            <span className="text-sm text-ink-muted">{t("settings.perDay", "per day")}</span>
+          </div>
+          <input
+            type="range"
+            min={100}
+            max={5000}
+            step={100}
+            value={budget}
+            aria-label="Daily budget"
+            onChange={(e) => setBudget(Number(e.target.value))}
+            className="w-full accent-brand"
+          />
+          <Button
+            variant="secondary"
+            loading={busy}
+            onClick={() =>
+              save(
+                { daily_budget_paise: budget * 100 },
+                t("settings.savedBudget", "Budget updated.")
+              )
+            }
+          >
+            {t("settings.updateBudget", "Update budget")}
+          </Button>
+        </Card>
+
+        {/* Autopilot */}
+        <Card className="space-y-3">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
+            {t("settings.autopilot", "Autopilot")}
+          </h2>
+          <div className="space-y-2">
+            {AUTOPILOT.map((a) => {
+              const on = s.autopilot_level === a.value;
+              return (
+                <button
+                  key={a.value}
+                  onClick={() =>
+                    save({ autopilot_level: a.value }, t("settings.savedAutopilot", "Autopilot updated."))
+                  }
+                  className={`flex w-full items-start gap-3 rounded-xl border p-3 text-left transition ${
+                    on ? "border-brand bg-brand-50" : "border-slate-200 bg-white"
+                  }`}
+                >
+                  <span
+                    className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                      on ? "border-brand bg-brand text-white" : "border-slate-300"
+                    }`}
+                  >
+                    {on && <Icon name="check" className="h-3 w-3" strokeWidth={3} />}
+                  </span>
+                  <span>
+                    <span className="block font-semibold">{a.en}</span>
+                    <span className="block text-sm text-ink-muted">{a.desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+
+        {/* Language */}
+        <Card className="space-y-2">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
+            {t("settings.language", "Language")}
+          </h2>
+          <button
+            onClick={() => setLangOpen(true)}
+            className="flex w-full items-center justify-between rounded-xl border border-slate-200 p-3"
+          >
+            <span className="font-medium">
+              {LANGUAGES.find((l) => l.code === locale)?.label || "English"}
+            </span>
+            <Icon name="chevronRight" className="text-ink-faint" />
+          </button>
+        </Card>
+
+        {/* Account actions */}
+        <Card className="divide-y divide-slate-100">
+          <a
+            href="https://wa.me/?text=Hi%20Salmor%20support"
+            className="flex items-center gap-3 py-3 text-ink-soft"
+          >
+            <Icon name="whatsapp" className="text-brand" />
+            {t("settings.help", "Help & support")}
+          </a>
+          <button
+            onClick={() => {
+              clearSession();
+              router.replace("/login");
+            }}
+            className="flex w-full items-center gap-3 py-3 text-hot"
+          >
+            <Icon name="logout" />
+            {t("settings.logout", "Log out")}
+          </button>
+        </Card>
+      </div>
+
+      {/* Language picker sheet */}
+      <Sheet open={langOpen} onClose={() => setLangOpen(false)} title={t("settings.language", "Language")}>
+        <div className="grid grid-cols-2 gap-2">
+          {LANGUAGES.map((l) => (
+            <button
+              key={l.code}
+              onClick={() => {
+                setLocale(l.code);
+                if (acc) save({ default_language: l.code }, t("settings.savedLanguage", "Language updated."));
+                setLangOpen(false);
+              }}
+              className={`rounded-xl border p-3 text-left ${
+                locale === l.code ? "border-brand bg-brand-50" : "border-slate-200"
+              }`}
+            >
+              <span className="block font-semibold">{l.label}</span>
+              <span className="block text-xs text-ink-faint">{l.english}</span>
+            </button>
+          ))}
+        </div>
+      </Sheet>
+
+      <BottomNav active="/settings" />
+    </main>
+  );
+}
