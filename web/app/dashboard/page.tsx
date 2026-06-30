@@ -82,6 +82,12 @@ export default function Dashboard() {
         </div>
       </header>
 
+      <nav className="grid grid-cols-3 gap-2 px-4 pt-4">
+        <Quick href="/onboarding" icon="✨" label="Set up ads" />
+        <Quick href="/reports" icon="📊" label="Reports" />
+        <Quick href="/billing" icon="💳" label="Billing" />
+      </nav>
+
       <section className="px-4 pt-4">
         <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">
           Leads
@@ -124,5 +130,14 @@ function Stat({ label, value }: { label: string; value: string }) {
       <p className="text-[10px] uppercase opacity-80">{label}</p>
       <p className="text-lg font-bold">{value}</p>
     </div>
+  );
+}
+
+function Quick({ href, icon, label }: { href: string; icon: string; label: string }) {
+  return (
+    <Link href={href} className="flex flex-col items-center gap-1 rounded-2xl border p-3 active:bg-slate-50">
+      <span className="text-xl">{icon}</span>
+      <span className="text-xs font-medium text-slate-600">{label}</span>
+    </Link>
   );
 }

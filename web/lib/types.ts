@@ -70,3 +70,93 @@ export interface Notification {
   read_at: string | null;
   created_at: string;
 }
+
+export interface BusinessInput {
+  business_name: string;
+  category: string;
+  offer: string;
+  city: string;
+  radius_km: number;
+  daily_budget_paise: number;
+  language: string;
+}
+
+export interface Brief {
+  id?: string;
+  offer?: string;
+  audience?: string[];
+  usp?: string[];
+  objections?: string[];
+  tone?: string;
+  version?: number;
+}
+
+export interface Angle {
+  id: string;
+  title: string;
+  rationale: string;
+  hypothesis: string;
+  status: string;
+}
+
+export interface CreativeItem {
+  id: string;
+  headline: string | null;
+  primary_text: string | null;
+  asset_url: string | null;
+  compliance_status: string;
+  approval_status: string;
+  language: string;
+}
+
+export interface CampaignItem {
+  id: string;
+  status: string;
+  channel: string;
+  daily_budget_paise: number;
+}
+
+export interface Decision {
+  action: string;
+  reason_code: string | null;
+  level: string;
+  applied: boolean;
+}
+
+export interface Insight {
+  level: string;
+  spend_paise: number;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  frequency: number;
+  leads: number;
+  cpl_paise: number;
+  cpql_paise: number;
+}
+
+export interface Tier {
+  tier: string;
+  price_paise: number;
+  gst_paise: number;
+  total_paise: number;
+  price_display: string;
+}
+
+export interface SubscribeResult {
+  tier: string;
+  price_paise: number;
+  gst_paise: number;
+  total_paise: number;
+  price_display: string;
+  mandate_url: string;
+  razorpay_subscription_id: string;
+  trial_days: number;
+}
+
+export interface SubscriptionInfo {
+  tier?: string;
+  status: string;
+  trial_end?: string | null;
+  current_period_end?: string | null;
+}

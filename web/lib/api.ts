@@ -1,10 +1,20 @@
 "use client";
 
 import type {
+  Angle,
+  Brief,
+  BusinessInput,
+  CampaignItem,
+  CreativeItem,
+  Decision,
   Home,
+  Insight,
   LeadDetail,
   LeadListItem,
   Notification,
+  SubscribeResult,
+  SubscriptionInfo,
+  Tier,
   TokenResponse,
 } from "./types";
 
@@ -89,6 +99,51 @@ export const api = {
     }),
   notifications: (accountId: string) =>
     req<Notification[]>(`/accounts/${accountId}/notifications`),
+
+  // Onboarding
+  setBusiness: (body: BusinessInput) =>
+    req<{ account_id: string; phase: string }>("/onboarding/business", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  onboardingStatus: () =>
+    req<{ phase: string; missing_steps: string[] }>("/onboarding/status"),
+
+  // Saathi pipeline
+  runResearch: (accountId: string) =>
+    req<{ brief_id: string }>(`/accounts/${accountId}/research/run`, { method: "POST" }),
+  brief: (accountId: string) => req<Brief>(`/accounts/${accountId}/brief`),
+  angles: (accountId: string) => req<Angle[]>(`/accounts/${accountId}/angles`),
+  generateCreatives: (accountId: string) =>
+    req<{ creative_ids: string[] }>(`/accounts/${accountId}/creatives/generate`, {
+      method: "POST",
+    }),
+  creatives: (accountId: string) =>
+    req<CreativeItem[]>(`/accounts/${accountId}/creatives`),
+  approveCreative: (creativeId: string) =>
+    req<{ ok: boolean }>(`/creatives/${creativeId}/approve`, { method: "POST" }),
+  launch: (accountId: string) =>
+    req<{ campaign_ids: string[] }>(`/accounts/${accountId}/campaigns/launch`, {
+      method: "POST",
+    }),
+  campaigns: (accountId: string) =>
+    req<CampaignItem[]>(`/accounts/${accountId}/campaigns`),
+  optimize: (accountId: string) =>
+    req<{ decisions: Decision[] }>(`/accounts/${accountId}/optimize/run`, { method: "POST" }),
+  decisions: (accountId: string) =>
+    req<Decision[]>(`/accounts/${accountId}/optimization/decisions`),
+  insights: (accountId: string) => req<Insight[]>(`/accounts/${accountId}/insights`),
+  runReport: (accountId: string) =>
+    req<{ message: string }>(`/accounts/${accountId}/report/run`, { method: "POST" }),
+
+  // Billing
+  tiers: () => req<Tier[]>("/billing/tiers"),
+  subscribe: (tier: string) =>
+    req<SubscribeResult>("/billing/subscribe", {
+      method: "POST",
+      body: JSON.stringify({ tier }),
+    }),
+  subscription: () => req<SubscriptionInfo>("/billing/subscription"),
 };
 
 export { ApiError };
