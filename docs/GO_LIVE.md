@@ -37,14 +37,19 @@ These gate real ads/leads and take **days–weeks**; they are approvals, not cod
    permissions (App Review); connect an aged ad account + Page. Fill `META_APP_ID/SECRET`,
    `META_WEBHOOK_VERIFY_TOKEN`; set `MOCK_META=false`. Subscribe the leadgen webhook to
    `https://<webhook-intake>/webhooks/meta/leadgen`.
-2. **WhatsApp Cloud API**: WABA onboarding (~5–15 days), phone number, **template
-   approval** (~20–30% first-time rejection — pre-validate), green-tick (GST + ~4–8 wks).
-   Fill `WHATSAPP_*`; set `MOCK_WHATSAPP=false`. Configure the webhook + verify token at
-   `https://<webhook-intake>/webhooks/whatsapp`. For each business number, insert a
-   `wa_routes` row (`phone_number_id → tenant_id, account_id`).
-   - **v1 shortcut (PRD §6.1.3):** the CTWA-to-app path needs *no* WABA — ads send leads to
-     the owner's existing WhatsApp app number. Use this to launch while the bot tier's
-     WABA approval is pending.
+2. **WhatsApp** — go live in **days, not weeks** (see `docs/WHATSAPP_PROVIDERS.md`):
+   - **Fastest:** use a **BSP middleware** (`WHATSAPP_PROVIDER=bsp`). The BSP is the Meta
+     Tech Provider, so their Embedded Signup provisions the number in hours/days — no app
+     review on our side. **Green-tick is NOT required** to start (unverified WABA sends
+     immediately; Meta *Business* verification — fast — lifts limits). Set `BSP_*`,
+     `MOCK_WHATSAPP=false`; point the provider webhook at
+     `https://<webhook-intake>/webhooks/whatsapp`; add a `wa_routes` row per number.
+   - **Cheapest at scale:** migrate to `WHATSAPP_PROVIDER=cloud` (Cloud API direct, no BSP
+     markup) once you hold Tech Provider access — same adapter interface.
+   - **CTWA 72h free window** means the Closer qualification costs ≈ ₹0 variable.
+   - **Even faster, no WABA (PRD §6.1.3):** CTWA-to-app sends leads to the owner's existing
+     WhatsApp app number — use it to prove ad economics while the BSP number provisions
+     (the AI Closer can't run on this path, since messages don't reach our API).
 
 ## Stage 4 — Data residency (DPDP) — founder/legal sign-off
 Railway has no guaranteed India region. Decide:

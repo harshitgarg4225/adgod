@@ -60,6 +60,17 @@ class Settings(BaseSettings):
     whatsapp_app_secret: str | None = None
     whatsapp_webhook_verify_token: str = "dev-verify-token"
 
+    # WhatsApp transport when not mocked: "cloud" (Meta direct) or "bsp" (aggregator
+    # middleware — fastest go-live, the BSP is the Meta Tech Provider).
+    whatsapp_provider: str = "cloud"
+    # Generic BSP config (works for most Indian BSPs that expose a Meta-compatible REST
+    # send endpoint; see docs/WHATSAPP_PROVIDERS.md for per-provider mapping).
+    bsp_base_url: str | None = None
+    bsp_api_key: str | None = None
+    bsp_send_path: str = "/messages"
+    bsp_auth_header: str = "Authorization"
+    bsp_auth_scheme: str = "Bearer"
+
     # Razorpay
     razorpay_key_id: str | None = None
     razorpay_key_secret: str | None = None

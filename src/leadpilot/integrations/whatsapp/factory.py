@@ -13,8 +13,13 @@ def get_whatsapp_adapter() -> WhatsAppAdapter:
             from leadpilot.integrations.whatsapp.mock import MockWhatsAppAdapter
 
             _adapter = MockWhatsAppAdapter()
+        elif settings.whatsapp_provider == "bsp":  # pragma: no cover
+            from leadpilot.integrations.whatsapp.bsp import BSPWhatsAppAdapter
+
+            _adapter = BSPWhatsAppAdapter()
         else:  # pragma: no cover
             from leadpilot.integrations.whatsapp.cloud import CloudWhatsAppAdapter
 
             _adapter = CloudWhatsAppAdapter()
     return _adapter
+
