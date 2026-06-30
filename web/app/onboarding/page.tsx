@@ -39,10 +39,9 @@ export default function Onboarding() {
     setBusy(true);
     setError(null);
     try {
-      const account = getUser()?.account_id;
       await api.setBusiness(form);
-      if (account) await api.runResearch(account);
-      router.replace("/onboarding/brief");
+      // Next: connect WhatsApp + Meta, then Saathi researches & builds the ads.
+      router.replace("/onboarding/connect");
     } catch (e: any) {
       setError(e.userMessage || "Could not save");
     } finally {

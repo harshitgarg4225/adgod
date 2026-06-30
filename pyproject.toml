@@ -23,6 +23,7 @@ dependencies = [
     "PyJWT>=2.10",
     "python-multipart>=0.0.12",
     "tenacity>=9.0",
+    "cryptography>=43.0",
 ]
 
 [project.optional-dependencies]

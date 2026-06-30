@@ -11,11 +11,18 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from leadpilot.bff.deps import Principal, current_principal
-from leadpilot.common.errors import NotFoundError
+from leadpilot.common.crypto import encrypt
+from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.common.i18n import normalize_locale
-from leadpilot.core.db import tenant_session
-from leadpilot.core.enums import AccountPhase
-from leadpilot.core.models import Account, BusinessProfile, MetaConnection, WhatsAppConnection
+from leadpilot.core.db import platform_session, tenant_session
+from leadpilot.core.enums import AccountPhase, WhatsAppMode
+from leadpilot.core.models import (
+    Account,
+    BusinessProfile,
+    MetaConnection,
+    WaRoute,
+    WhatsAppConnection,
+)
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
@@ -33,6 +40,22 @@ class BusinessIn(BaseModel):
 class StatusOut(BaseModel):
     phase: str
     missing_steps: list[str]
+
+
+class WhatsAppConnectIn(BaseModel):
+    # APP_DESTINATION = fastest go-live (CTWA → owner's own WhatsApp app, no API).
+    # CLOUD_API / BSP = the AI Closer runs on inbound webhooks.
+    mode: str = "APP_DESTINATION"
+    phone: str | None = None             # owner's WhatsApp number (APP_DESTINATION)
+    waba_id: str | None = None
+    phone_number_id: str | None = None   # routing key for CLOUD_API/BSP
+
+
+class MetaConnectIn(BaseModel):
+    meta_business_id: str
+    ad_account_id: str
+    page_id: str
+    system_user_token: str | None = None
 
 
 @router.post("/business")
@@ -60,6 +83,61 @@ def set_business(body: BusinessIn, principal: Principal = Depends(current_princi
         profile.service_radius_km = body.radius_km
         profile.daily_budget_paise = body.daily_budget_paise
         return {"account_id": str(account.id), "phase": account.phase}
+
+
+@router.post("/whatsapp/connect")
+def connect_whatsapp(body: WhatsAppConnectIn, principal: Principal = Depends(current_principal)) -> dict:
+    mode = body.mode.upper()
+    if mode not in {m.value for m in WhatsAppMode}:
+        raise ValidationError(f"Unknown WhatsApp mode: {mode}")
+    if not principal.account_id:
+        raise NotFoundError("No account")
+    if mode == WhatsAppMode.APP_DESTINATION.value and not body.phone:
+        raise ValidationError("phone is required for APP_DESTINATION")
+    if mode != WhatsAppMode.APP_DESTINATION.value and not body.phone_number_id:
+        raise ValidationError("phone_number_id is required for CLOUD_API/BSP")
+
+    with tenant_session(principal.tenant_id) as s:
+        conn = s.scalar(
+            select(WhatsAppConnection).where(WhatsAppConnection.account_id == principal.account_id)
+        )
+        if conn is None:
+            conn = WhatsAppConnection(tenant_id=principal.tenant_id, account_id=principal.account_id)
+            s.add(conn)
+        conn.mode = mode
+        conn.waba_id = body.waba_id
+        conn.phone_number_id = body.phone_number_id
+        conn.display_phone = body.phone
+
+    # CLOUD_API/BSP: register the routing key so inbound webhooks resolve the tenant.
+    if mode != WhatsAppMode.APP_DESTINATION.value and body.phone_number_id:
+        with platform_session() as s:
+            existing = s.scalar(
+                select(WaRoute).where(WaRoute.phone_number_id == body.phone_number_id))
+            if existing is None:
+                s.add(WaRoute(phone_number_id=body.phone_number_id,
+                              tenant_id=principal.tenant_id, account_id=principal.account_id))
+    return {"mode": mode, "closer_enabled": mode != WhatsAppMode.APP_DESTINATION.value}
+
+
+@router.post("/meta/connect")
+def connect_meta(body: MetaConnectIn, principal: Principal = Depends(current_principal)) -> dict:
+    """Store the Meta ad-account/Page connection. Token encrypted at rest."""
+    if not principal.account_id:
+        raise NotFoundError("No account")
+    with tenant_session(principal.tenant_id) as s:
+        conn = s.scalar(
+            select(MetaConnection).where(MetaConnection.account_id == principal.account_id))
+        if conn is None:
+            conn = MetaConnection(tenant_id=principal.tenant_id, account_id=principal.account_id)
+            s.add(conn)
+        conn.meta_business_id = body.meta_business_id
+        conn.ad_account_id = body.ad_account_id
+        conn.page_id = body.page_id
+        if body.system_user_token:
+            conn.system_user_token_enc = encrypt(body.system_user_token)
+        conn.status = "ACTIVE"
+    return {"status": "connected", "ad_account_id": body.ad_account_id}
 
 
 @router.get("/status", response_model=StatusOut)

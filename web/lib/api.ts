@@ -113,6 +113,26 @@ export const api = {
     }),
   onboardingStatus: () =>
     req<{ phase: string; missing_steps: string[] }>("/onboarding/status"),
+  connectWhatsApp: (body: {
+    mode: string;
+    phone?: string;
+    phone_number_id?: string;
+    waba_id?: string;
+  }) =>
+    req<{ mode: string; closer_enabled: boolean }>("/onboarding/whatsapp/connect", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  connectMeta: (body: {
+    meta_business_id: string;
+    ad_account_id: string;
+    page_id: string;
+    system_user_token?: string;
+  }) =>
+    req<{ status: string }>("/onboarding/meta/connect", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   // Saathi pipeline
   runResearch: (accountId: string) =>

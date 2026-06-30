@@ -48,6 +48,7 @@ from leadpilot.core.models import (
     MetaConnection,
     Notification,
     OptimizationDecision,
+    WhatsAppConnection,
 )
 from leadpilot.integrations.meta import get_meta_adapter
 from leadpilot.integrations.whatsapp import get_whatsapp_adapter
@@ -191,6 +192,14 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
     page_id = (meta_conn.page_id if meta_conn else None) or "MOCKPAGE"
     daily_budget = profile.daily_budget_paise if profile else 50000
 
+    # CTWA destination: in APP_DESTINATION mode the ad sends leads straight to the owner's
+    # existing WhatsApp number (no Cloud API / WABA needed — the fastest go-live path).
+    wa_conn = session.scalar(
+        select(WhatsAppConnection).where(WhatsAppConnection.account_id == account_id))
+    cta = {"call_to_action": {"type": "WHATSAPP_MESSAGE"}}
+    if wa_conn and wa_conn.mode == "APP_DESTINATION" and wa_conn.display_phone:
+        cta["call_to_action"]["value"] = {"app_destination_phone": wa_conn.display_phone}
+
     # Idempotency: if an ACTIVE campaign already exists, do not relaunch.
     existing = session.scalar(
         select(Campaign).where(Campaign.account_id == account_id,
@@ -262,8 +271,7 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
         for creative in creatives:
             meta_creative_id = meta.create_creative(
                 ad_account_id=ad_account_id, page_id=page_id, message=creative.primary_text or "",
-                headline=creative.headline or "", link_or_cta={"call_to_action":
-                {"type": "WHATSAPP_MESSAGE"}}, image_url=creative.asset_url,
+                headline=creative.headline or "", link_or_cta=cta, image_url=creative.asset_url,
             )
             meta_ad_id = meta.create_ad(
                 ad_account_id=ad_account_id, adset_id=meta_adset_id,
