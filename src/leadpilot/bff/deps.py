@@ -47,3 +47,8 @@ def require_account_access(principal: Principal, account_id: str) -> None:
         return
     if principal.account_id and principal.account_id != account_id:
         raise ForbiddenError("Not your account")
+
+
+def require_role(principal: Principal, allowed: set[str]) -> None:
+    if principal.role not in allowed:
+        raise ForbiddenError("Insufficient role")

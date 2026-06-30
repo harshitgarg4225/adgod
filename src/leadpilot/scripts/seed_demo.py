@@ -22,11 +22,16 @@ from leadpilot.core.models import (
 from leadpilot.core.money import Paise
 from leadpilot.scripts.demo_constants import (
     DEMO_ACCOUNT_ID,
+    DEMO_ADMIN_ID,
+    DEMO_ADMIN_PHONE,
     DEMO_BUSINESS_NAME,
     DEMO_CATEGORY,
     DEMO_CITY,
     DEMO_LANGUAGE,
     DEMO_OWNER_PHONE,
+    DEMO_PARTNER_PHONE,
+    DEMO_PARTNER_TENANT_ID,
+    DEMO_PARTNER_USER_ID,
     DEMO_PHONE_NUMBER_ID,
     DEMO_TENANT_ID,
     DEMO_USER_ID,
@@ -51,6 +56,19 @@ def seed() -> None:
         if existing_route is None:
             s.add(WaRoute(phone_number_id=DEMO_PHONE_NUMBER_ID, tenant_id=DEMO_TENANT_ID,
                           account_id=DEMO_ACCOUNT_ID))
+        # Admin/ops user on the DIRECT tenant.
+        if s.get(User, DEMO_ADMIN_ID) is None:
+            s.add(User(id=DEMO_ADMIN_ID, tenant_id=DEMO_TENANT_ID, account_id=None,
+                       phone=DEMO_ADMIN_PHONE, role=UserRole.ADMIN.value, name="Asha (Ops)",
+                       locale="en"))
+        # A separate PARTNER tenant + user (agency console).
+        if s.get(Tenant, DEMO_PARTNER_TENANT_ID) is None:
+            s.add(Tenant(id=DEMO_PARTNER_TENANT_ID, name="Priya Digital (Partner)",
+                         type="PARTNER", status="ACTIVE", settings={}))
+        if s.get(User, DEMO_PARTNER_USER_ID) is None:
+            s.add(User(id=DEMO_PARTNER_USER_ID, tenant_id=DEMO_PARTNER_TENANT_ID, account_id=None,
+                       phone=DEMO_PARTNER_PHONE, role=UserRole.PARTNER.value, name="Priya",
+                       locale="en"))
 
     # Account + profile + WhatsApp connection (RLS tables — under tenant context).
     with tenant_session(DEMO_TENANT_ID) as s:

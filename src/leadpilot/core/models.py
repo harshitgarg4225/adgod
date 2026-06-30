@@ -604,6 +604,35 @@ class Booking(Base, TimestampMixin):
     calendar_ref: Mapped[str | None] = mapped_column(String(120))
 
 
+# ─────────────────────────── Admin / ops (non-RLS, platform-scoped) ───────────────────────────
+
+class AuditLog(Base):
+    """Audited admin/agent/system actions (PRD §8.5). Cross-tenant → not RLS-bound."""
+
+    __tablename__ = "audit_logs"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+    actor: Mapped[str] = mapped_column(String(120), nullable=False)
+    action: Mapped[str] = mapped_column(String(80), nullable=False)
+    entity: Mapped[str | None] = mapped_column(String(60))
+    entity_id: Mapped[str | None] = mapped_column(String(80))
+    before: Mapped[dict] = mapped_column(JSONB, default=dict)
+    after: Mapped[dict] = mapped_column(JSONB, default=dict)
+    ip: Mapped[str | None] = mapped_column(String(60))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class FeatureFlag(Base):
+    __tablename__ = "feature_flags"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    description: Mapped[str | None] = mapped_column(String(200))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+
 # Tables that are RLS-forced (carry tenant_id; subject to the app.tenant_id policy).
 # Intentionally NOT RLS:
 #   * infra: outbox, jobs, dlq, inbound_events, idempotency_keys, wa_routes, tenants
