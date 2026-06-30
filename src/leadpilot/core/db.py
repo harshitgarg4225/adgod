@@ -38,13 +38,20 @@ engine = create_engine(
 SessionFactory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 
 
-def _app_role() -> str | None:
-    role = settings.app_tenant_db_role
+def _validated_role(role: str | None) -> str | None:
     if not role:
         return None
     if not _IDENT_RE.match(role):
         raise ValueError(f"Unsafe DB role identifier: {role!r}")
     return role
+
+
+def _app_role() -> str | None:
+    return _validated_role(settings.app_tenant_db_role)
+
+
+def _platform_role() -> str | None:
+    return _validated_role(settings.app_platform_db_role)
 
 
 @contextmanager
@@ -70,9 +77,17 @@ def tenant_session(tenant_id: UUID | str) -> Iterator[Session]:
 
 @contextmanager
 def platform_session() -> Iterator[Session]:
-    """A transaction as the base role with NO tenant GUC — only for non-RLS tables."""
+    """A transaction for legitimate cross-tenant work (routing, webhooks, admin, cron).
+
+    Switches to the BYPASSRLS platform role when configured, so it works even when the
+    app's base connection is the least-privilege tenant role. With no platform role set,
+    it runs as the base role (correct only if that role can bypass RLS — local/CI).
+    """
     session = SessionFactory()
     try:
+        role = _platform_role()
+        if role:
+            session.execute(text(f"SET LOCAL ROLE {role}"))
         yield session
         session.commit()
     except Exception:

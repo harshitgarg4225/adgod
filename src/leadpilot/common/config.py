@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     database_url_pooled: str | None = None
     database_migration_url: str | None = None
     app_tenant_db_role: str = "leadpilot_app"
+    # Role used by platform_session for legitimate cross-tenant work (webhooks, admin,
+    # cron). Must be able to bypass RLS. Empty → use the base connection role (works only
+    # if that role is a superuser/BYPASSRLS, e.g. local/CI). Set in production.
+    app_platform_db_role: str = ""
     redis_url: str = Field(default="redis://localhost:6379/0")
 
     # Auth

@@ -63,11 +63,13 @@ def upgrade() -> None:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
         op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
+        # NULLIF(..., '') so an unset/empty GUC yields NULL (zero rows) instead of a uuid
+        # cast error — fail-closed for any non-bypass role that hits an RLS table.
         op.execute(
             f"""
             CREATE POLICY tenant_isolation ON {table}
-                USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-                WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid)
+                USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+                WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
             """
         )
 
