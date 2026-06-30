@@ -110,8 +110,11 @@ class Orchestrator:
         lead = self._find_or_create_lead(session, tenant_id, account_id, inbound)
         conversation = self._find_or_create_conversation(session, tenant_id, lead)
 
-        # Persist inbound message.
+        # Persist inbound message. Each inbound reopens the 24h free-form service window
+        # (Meta resets it on every customer message), so refresh the expiry — proactive
+        # outbound (re-engagement/reports) checks this to decide free-form vs. template.
         conversation.last_inbound_at = _now()
+        conversation.free_window_expires_at = _now() + _FREE_WINDOW
         session.add(
             Message(
                 tenant_id=tenant_id,

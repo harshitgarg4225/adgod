@@ -80,6 +80,27 @@ _RETENTION = {
 }
 
 
+@app.task(name="leadpilot.leads.mark_no_response")
+def mark_no_response() -> dict:
+    """Hourly: a lead that engaged but went silent until the 24h WhatsApp service window
+    closed (and never qualified) is moved to NO_RESPONSE. This surfaces the 'silent lead'
+    state the inbox/segments rely on, and is the precondition for out-of-window template
+    re-engagement (which needs an approved WaTemplate — tracked separately)."""
+    with platform_session() as s:
+        res = s.execute(
+            text(
+                "UPDATE leads SET status='NO_RESPONSE' "
+                "WHERE status='ENGAGED' AND id IN ("
+                "  SELECT lead_id FROM conversations "
+                "  WHERE free_window_expires_at IS NOT NULL AND free_window_expires_at < now())"
+            )
+        )
+        n = res.rowcount or 0
+    if n:
+        log.info("mark_no_response", count=n)
+    return {"marked": n}
+
+
 @app.task(name="leadpilot.workflow.retention_sweep")
 def retention_sweep() -> dict:
     """Daily: bound the growth of durability/PII tables. Runs as the platform role; each

@@ -50,6 +50,10 @@ app.conf.beat_schedule = {
         "task": "leadpilot.optimizer.dispatch",
         "schedule": crontab(minute=0),
     },
+    "mark-no-response-hourly": {
+        "task": "leadpilot.leads.mark_no_response",
+        "schedule": crontab(minute=15),
+    },
     "reporter-daily-2000-ist": {
         "task": "leadpilot.reporter.dispatch_daily",
         "schedule": crontab(hour=20, minute=0),
