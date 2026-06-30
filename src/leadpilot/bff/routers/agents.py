@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 
 from leadpilot.bff.deps import Principal, current_principal, require_account_access
+from leadpilot.common.config import settings
 from leadpilot.core.db import tenant_session
 from leadpilot.core.models import (
     AdInsight,
@@ -21,13 +22,35 @@ from leadpilot.core.models import (
     OptimizationDecision,
 )
 from leadpilot.saathi import pipeline
+from leadpilot.worker.dispatch import enqueue_pipeline
 
 router = APIRouter(tags=["saathi"])
+
+# Map each owner-initiated phase to its worker task (used when pipeline_inline=false).
+_PHASE_TASKS = {
+    "research": ("leadpilot.pipeline.research", "agent"),
+    "creative": ("leadpilot.pipeline.creative", "agent"),
+    "launch": ("leadpilot.launch.run", "launch"),
+    "optimize": ("leadpilot.optimizer.run", "optimizer"),
+    "report": ("leadpilot.reporter.run", "agent"),
+}
+
+
+def _maybe_enqueue(phase: str, tenant_id: str, account_id: str) -> dict | None:
+    """In production (pipeline_inline=false) enqueue the phase and return a 'queued' dict;
+    inline (pilot/dev) returns None so the caller runs it synchronously."""
+    if settings.pipeline_inline:
+        return None
+    task, queue = _PHASE_TASKS[phase]
+    enqueue_pipeline(task, tenant_id, account_id, queue=queue)
+    return {"status": "queued", "phase": phase}
 
 
 @router.post("/accounts/{account_id}/research/run")
 def research(account_id: str, principal: Principal = Depends(current_principal)) -> dict:
     require_account_access(principal, account_id)
+    if (q := _maybe_enqueue("research", principal.tenant_id, account_id)):
+        return q
     with tenant_session(principal.tenant_id) as s:
         brief_id = pipeline.run_research(s, tenant_id=principal.tenant_id, account_id=account_id)
     return {"brief_id": str(brief_id)}
@@ -59,6 +82,8 @@ def get_angles(account_id: str, principal: Principal = Depends(current_principal
 @router.post("/accounts/{account_id}/creatives/generate")
 def gen_creatives(account_id: str, principal: Principal = Depends(current_principal)) -> dict:
     require_account_access(principal, account_id)
+    if (q := _maybe_enqueue("creative", principal.tenant_id, account_id)):
+        return q
     with tenant_session(principal.tenant_id) as s:
         ids = pipeline.run_creative(s, tenant_id=principal.tenant_id, account_id=account_id)
     return {"creative_ids": [str(i) for i in ids]}
@@ -88,6 +113,8 @@ def approve_creative(creative_id: str, principal: Principal = Depends(current_pr
 @router.post("/accounts/{account_id}/campaigns/launch")
 def launch(account_id: str, principal: Principal = Depends(current_principal)) -> dict:
     require_account_access(principal, account_id)
+    if (q := _maybe_enqueue("launch", principal.tenant_id, account_id)):
+        return q
     with tenant_session(principal.tenant_id) as s:
         ids = pipeline.launch_campaigns(s, tenant_id=principal.tenant_id, account_id=account_id)
     return {"campaign_ids": [str(i) for i in ids]}
@@ -106,6 +133,8 @@ def list_campaigns(account_id: str, principal: Principal = Depends(current_princ
 @router.post("/accounts/{account_id}/optimize/run")
 def optimize(account_id: str, principal: Principal = Depends(current_principal)) -> dict:
     require_account_access(principal, account_id)
+    if (q := _maybe_enqueue("optimize", principal.tenant_id, account_id)):
+        return q
     with tenant_session(principal.tenant_id) as s:
         decisions = pipeline.run_optimization(s, tenant_id=principal.tenant_id, account_id=account_id)
     return {"decisions": decisions}
@@ -142,6 +171,8 @@ def insights(
 @router.post("/accounts/{account_id}/report/run")
 def report(account_id: str, principal: Principal = Depends(current_principal)) -> dict:
     require_account_access(principal, account_id)
+    if (q := _maybe_enqueue("report", principal.tenant_id, account_id)):
+        return q
     with tenant_session(principal.tenant_id) as s:
         msg = pipeline.run_report(s, tenant_id=principal.tenant_id, account_id=account_id)
     return {"message": msg}

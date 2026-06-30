@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from leadpilot.bff.deps import Principal, current_principal
+from leadpilot.common.config import settings
 from leadpilot.common.crypto import encrypt
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.common.i18n import normalize_locale
@@ -56,6 +57,13 @@ class MetaConnectIn(BaseModel):
     ad_account_id: str
     page_id: str
     system_user_token: str | None = None
+
+
+class EmbeddedSignupIn(BaseModel):
+    code: str                       # OAuth code from Meta Embedded Signup
+    ad_account_id: str
+    page_id: str
+    meta_business_id: str | None = None
 
 
 @router.post("/business")
@@ -138,6 +146,43 @@ def connect_meta(body: MetaConnectIn, principal: Principal = Depends(current_pri
             conn.system_user_token_enc = encrypt(body.system_user_token)
         conn.status = "ACTIVE"
     return {"status": "connected", "ad_account_id": body.ad_account_id}
+
+
+@router.post("/meta/embedded-signup/callback")
+def meta_embedded_signup(body: EmbeddedSignupIn, principal: Principal = Depends(current_principal)) -> dict:
+    """Exchange the Embedded-Signup OAuth code for a long-lived token (encrypted at rest).
+    Removes manual token entry for self-serve onboarding (PRD §6.1.2)."""
+    if not principal.account_id:
+        raise NotFoundError("No account")
+    token = _exchange_meta_code(body.code)
+    with tenant_session(principal.tenant_id) as s:
+        conn = s.scalar(
+            select(MetaConnection).where(MetaConnection.account_id == principal.account_id))
+        if conn is None:
+            conn = MetaConnection(tenant_id=principal.tenant_id, account_id=principal.account_id)
+            s.add(conn)
+        conn.meta_business_id = body.meta_business_id
+        conn.ad_account_id = body.ad_account_id
+        conn.page_id = body.page_id
+        conn.system_user_token_enc = encrypt(token)
+        conn.status = "ACTIVE"
+    return {"status": "connected", "ad_account_id": body.ad_account_id}
+
+
+def _exchange_meta_code(code: str) -> str:
+    """OAuth code → access token. Mocked unless real Meta creds are configured."""
+    if settings.mock_meta or not settings.meta_app_secret:
+        return f"mock-system-user-token-{code[:8]}"
+    import httpx  # pragma: no cover - requires live creds
+
+    resp = httpx.get(
+        f"https://graph.facebook.com/{settings.meta_graph_api_version}/oauth/access_token",
+        params={"client_id": settings.meta_app_id, "client_secret": settings.meta_app_secret,
+                "code": code, "redirect_uri": f"{settings.app_base_url}/onboarding/meta/callback"},
+        timeout=15.0,
+    )
+    resp.raise_for_status()
+    return resp.json()["access_token"]
 
 
 @router.get("/status", response_model=StatusOut)

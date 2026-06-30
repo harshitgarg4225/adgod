@@ -2,9 +2,12 @@
 home dashboard, notifications (PRD §6.7, §6.8, §12.1)."""
 from __future__ import annotations
 
+import csv
+import io
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import case, func, select
 
 from leadpilot.bff.deps import Principal, current_principal, require_account_access
@@ -141,6 +144,32 @@ def home(account_id: str, principal: Principal = Depends(current_principal)) -> 
         cpql_paise=None,
         cpql_display=None,
         campaign_status=["In review"],
+    )
+
+
+@router.get("/accounts/{account_id}/leads/export.csv")
+def export_leads_csv(
+    account_id: str, principal: Principal = Depends(current_principal)
+) -> StreamingResponse:
+    """Export leads as CSV (PRD §6.7.2, Pro). PII stays within the owner's own tenant (RLS)."""
+    require_account_access(principal, account_id)
+    with tenant_session(principal.tenant_id) as session:
+        rows = session.scalars(
+            select(Lead).where(Lead.account_id == account_id)
+            .order_by(Lead.created_at.desc())
+        ).all()
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["name", "phone", "score", "status", "intent", "location",
+                    "owner_action", "created_at"])
+        for r in rows:
+            w.writerow([r.name or "", r.wa_phone, r.score or "", r.status,
+                        r.intent_summary or "", r.location_signal or "", r.owner_action,
+                        r.created_at.isoformat()])
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=leads.csv"},
     )
 
 

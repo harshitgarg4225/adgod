@@ -10,7 +10,7 @@ import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from sqlalchemy import select
 
 from leadpilot.bff.schemas import (
@@ -25,6 +25,7 @@ from leadpilot.common.auth import decode_token, issue_access_token, issue_refres
 from leadpilot.common.config import settings
 from leadpilot.common.errors import AuthError, NotFoundError
 from leadpilot.common.logging import get_logger
+from leadpilot.common.ratelimit import enforce
 from leadpilot.core.db import platform_session
 from leadpilot.core.models import AuthOtp, User
 from leadpilot.integrations.otp import get_otp_provider
@@ -40,7 +41,11 @@ def _hash(code: str) -> str:
 
 
 @router.post("/otp/request", status_code=202)
-def otp_request(req: OtpRequest) -> dict:
+def otp_request(req: OtpRequest, request: Request) -> dict:
+    # Throttle OTP sends: per phone and per source IP (anti-abuse / SMS-cost control).
+    enforce("otp_request", req.phone, limit=5, window_s=600)
+    if request.client:
+        enforce("otp_request_ip", request.client.host, limit=20, window_s=600)
     code = f"{secrets.randbelow(1_000_000):06d}"
     with platform_session() as s:
         s.add(AuthOtp(phone=req.phone, code_hash=_hash(code),
@@ -60,6 +65,8 @@ def _user_by_phone(phone: str) -> User | None:
 
 @router.post("/otp/verify", response_model=TokenOut)
 def otp_verify(req: OtpVerify) -> TokenOut:
+    # Throttle verify attempts per phone to blunt OTP brute force.
+    enforce("otp_verify", req.phone, limit=10, window_s=600)
     now = datetime.now(UTC)
     with platform_session() as s:
         otp = s.scalar(

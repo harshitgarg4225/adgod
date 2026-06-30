@@ -94,6 +94,18 @@ class Settings(BaseSettings):
     # Scaling
     optimizer_shard_count: int = 4
     default_trust_threshold: int = 2
+    # Run owner-initiated pipeline phases synchronously in the BFF request (pilot/dev).
+    # Set false in production → BFF enqueues worker jobs and returns immediately.
+    pipeline_inline: bool = True
+
+    def insecure_secrets(self) -> list[str]:
+        """Dev-default secrets that MUST be replaced in production."""
+        bad = []
+        if self.jwt_secret == "dev-only-change-me":
+            bad.append("JWT_SECRET")
+        if self.token_encryption_key == "dev-only-32byte-key-change-me____":
+            bad.append("TOKEN_ENCRYPTION_KEY")
+        return bad
 
     @property
     def db_url(self) -> str:

@@ -10,8 +10,8 @@ from sqlalchemy import select
 from leadpilot.bff.deps import Principal, current_principal
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.core.db import tenant_session
-from leadpilot.core.enums import SubscriptionStatus, SubscriptionTier
-from leadpilot.core.models import Invoice, Subscription
+from leadpilot.core.enums import SubscriptionStatus, SubscriptionTier, WalletEntryType
+from leadpilot.core.models import Invoice, Subscription, WalletLedger
 from leadpilot.core.money import format_paise, with_gst
 from leadpilot.integrations.razorpay import get_razorpay_adapter
 from leadpilot.integrations.razorpay.base import TIER_PRICE_PAISE, TRIAL_DAYS
@@ -80,6 +80,49 @@ def invoices(principal: Principal = Depends(current_principal)) -> list[dict]:
         ).all()
         return [{"id": str(i.id), "amount_paise": i.amount_paise, "gst_paise": i.gst_paise,
                  "status": i.status, "pdf_url": i.pdf_url, "period": i.period} for i in rows]
+
+
+class TopupIn(BaseModel):
+    amount_paise: int
+
+
+def _wallet_balance(s, account_id) -> int:
+    last = s.scalar(
+        select(WalletLedger).where(WalletLedger.account_id == account_id)
+        .order_by(WalletLedger.created_at.desc()))
+    return last.balance_paise if last else 0
+
+
+@router.post("/wallet/topup")
+def wallet_topup(body: TopupIn, principal: Principal = Depends(current_principal)) -> dict:
+    """Top up the ad wallet (PRD §6.9.2, Pro). Funds are ledgered separately from platform
+    fees. In mock mode the credit is immediate; with real Razorpay it lands on the order
+    webhook. Wallet money never co-mingles with subscription revenue."""
+    if body.amount_paise <= 0:
+        raise ValidationError("amount must be positive")
+    if not principal.account_id:
+        raise NotFoundError("No account")
+    with tenant_session(principal.tenant_id) as s:
+        balance = _wallet_balance(s, principal.account_id) + body.amount_paise
+        s.add(WalletLedger(tenant_id=principal.tenant_id, account_id=principal.account_id,
+                           entry_type=WalletEntryType.TOPUP.value, amount_paise=body.amount_paise,
+                           balance_paise=balance, ref="mock-topup"))
+    return {"balance_paise": balance, "balance_display": format_paise(balance)}
+
+
+@router.get("/wallet")
+def wallet(principal: Principal = Depends(current_principal)) -> dict:
+    if not principal.account_id:
+        raise NotFoundError("No account")
+    with tenant_session(principal.tenant_id) as s:
+        balance = _wallet_balance(s, principal.account_id)
+        rows = s.scalars(
+            select(WalletLedger).where(WalletLedger.account_id == principal.account_id)
+            .order_by(WalletLedger.created_at.desc()).limit(50)).all()
+        ledger = [{"entry_type": r.entry_type, "amount_paise": r.amount_paise,
+                   "balance_paise": r.balance_paise, "ref": r.ref,
+                   "created_at": r.created_at.isoformat()} for r in rows]
+    return {"balance_paise": balance, "balance_display": format_paise(balance), "ledger": ledger}
 
 
 @router.get("/tiers")

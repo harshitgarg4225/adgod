@@ -17,6 +17,10 @@ def init_observability(service: str) -> None:
     if _inited:
         return
     _inited = True
+    insecure = settings.insecure_secrets()
+    if insecure and settings.is_production:
+        # Loud, actionable: dev-default secrets in production are a critical risk.
+        log.error("INSECURE_SECRETS_IN_PRODUCTION", secrets=",".join(insecure))
     if settings.sentry_dsn:
         try:  # pragma: no cover - optional dependency
             import sentry_sdk

@@ -28,6 +28,18 @@ def _clean_db():
         ).scalars().all()
         if tables:
             conn.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE"))
+    # Clear rate-limit counters so OTP-using tests don't accumulate across the run.
+    try:
+        import redis
+
+        from leadpilot.common.config import settings
+
+        r = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=1)
+        keys = list(r.scan_iter("rl:*"))
+        if keys:
+            r.delete(*keys)
+    except Exception:
+        pass
     yield
 
 
