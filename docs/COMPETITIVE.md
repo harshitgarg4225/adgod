@@ -51,7 +51,8 @@ idempotency live in code — not in visual nodes that drift across tenants.
 | OSS reference | What we took | Where it lives — better |
 |---|---|---|
 | `nikD305/Meta-Ads-Automation-n8n` (launch/monitor) | campaign launch + insight pull shape | `pipeline.launch_campaigns` / `run_optimization` — typed, tenant-scoped, outbox-durable |
-| `luukalleman/meta-ads-system` (kill-losers/scale-winners) | the rule baseline | `pipeline._decide` — repointed from CPL to **CPQL**, bounds enforced by `guardrails/spend.py` |
+| `luukalleman/meta-ads-system` (kill-losers/scale-winners, hourly loop) | the full refresh-and-reallocate loop | `pipeline._decide` + `run_optimization`: kill zero-conv / CPL>3× / fatigue(freq>4)→refresh; scale winners (+20%/day cap); **reallocate freed budget to winners**; **promote test winners** to prospecting; emergency day-cap stop; 3-tier PROSPECTING/RETARGETING/TESTING split. Repointed CPL→**CPQL**; every move bounded by `guardrails/spend.py` |
+| `kaansrc/performance-marketer` (creative brain) | site-scrape → competitor counter-positioning → image + **UGC video** → 3-campaign structure → daily optimize | `integrations/scrape.py` → `Scout` (counter-positioning); `CreativeProvider.generate_video` (image + VIDEO_9_16 per angle); 3-tier launch; `run_optimization` |
 | `renthelautomations/competitor-product-intelligence-meta-ads` | Ad Library scouting | `MetaAdapter.search_ad_library` feeding `Scout` |
 | `pypesdev/meta-daily-adspend-update-sheet` | daily reporting | `pipeline.run_report` + `Reporter` (vernacular WhatsApp, not a sheet) |
 | `*/whatsapp-...-booking-bot` (n8n + Cloud API) | qualification/booking flow | `Closer` state machine — **scoped & Meta-compliant** (a guard blocks general-purpose replies, which the OSS bots don't) |
