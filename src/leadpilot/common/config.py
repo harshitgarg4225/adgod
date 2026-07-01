@@ -56,9 +56,12 @@ class Settings(BaseSettings):
     llm_daily_budget_per_account_paise: int = 5000
     llm_max_output_tokens: int = 2048
     llm_request_timeout_s: float = 30.0
-    # UGC video generation (text-to-video, e.g. a fal.ai/Kling-style endpoint).
-    video_provider_url: str = "https://api.example-video.dev/generate"
-    video_provider_key: str | None = None
+    # UGC video generation via fal.ai (Kling / other text-to-video models).
+    fal_api_key: str | None = None
+    fal_video_model: str = "fal-ai/kling-video/v1/standard/text-to-video"
+    fal_video_duration: str = "5"        # seconds, as the model expects
+    fal_poll_timeout_s: float = 180.0    # video renders take a while
+    fal_poll_interval_s: float = 3.0
 
     # Meta
     meta_app_id: str | None = None
@@ -118,6 +121,29 @@ class Settings(BaseSettings):
         if self.token_encryption_key == "dev-only-32byte-key-change-me____":
             bad.append("TOKEN_ENCRYPTION_KEY")
         return bad
+
+    def production_warnings(self) -> list[str]:
+        """Non-fatal production misconfig — logged loudly at boot so a half-configured
+        deploy is obvious (dev-default secrets are handled separately and fail-closed)."""
+        w: list[str] = []
+        if not self.is_production:
+            return w
+        if not self.app_platform_db_role:
+            w.append("APP_PLATFORM_DB_ROLE empty (webhooks/admin/cron need a BYPASSRLS role)")
+        if not self.cors_allowed_origins:
+            w.append("CORS_ALLOWED_ORIGINS empty (falling back to WEB_BASE_URL)")
+        if self.pipeline_inline:
+            w.append("PIPELINE_INLINE=true in production (should enqueue workers)")
+        # A live integration with no credentials is almost certainly a mistake.
+        if not self.mock_meta and not self.meta_app_secret:
+            w.append("MOCK_META=false but META_APP_SECRET is empty")
+        if not self.mock_whatsapp and not (self.whatsapp_app_secret or self.bsp_api_key):
+            w.append("MOCK_WHATSAPP=false but no WhatsApp secret configured")
+        if not self.mock_razorpay and not self.razorpay_webhook_secret:
+            w.append("MOCK_RAZORPAY=false but RAZORPAY_WEBHOOK_SECRET is empty")
+        if not self.mock_llm and not (self.anthropic_api_key or self.gemini_api_key):
+            w.append("MOCK_LLM=false but no LLM API key configured")
+        return w
 
     @property
     def db_url(self) -> str:

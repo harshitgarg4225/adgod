@@ -26,6 +26,8 @@ def init_observability(service: str) -> None:
             f"Refusing to start in production with dev-default secrets: {', '.join(insecure)}. "
             "Set strong JWT_SECRET and TOKEN_ENCRYPTION_KEY environment variables."
         )
+    for warning in settings.production_warnings():
+        log.warning("PRODUCTION_CONFIG_WARNING", detail=warning)
     if settings.sentry_dsn:
         try:  # pragma: no cover - optional dependency
             import sentry_sdk
