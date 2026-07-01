@@ -50,6 +50,10 @@ app.conf.beat_schedule = {
         "task": "leadpilot.optimizer.dispatch",
         "schedule": crontab(minute=0),
     },
+    "progress-accounts": {  # autonomous pre-live progression (research→creative→launch)
+        "task": "leadpilot.workflow.progress_accounts",
+        "schedule": 600.0,  # every 10 min — a backstop; onboarding also drives these
+    },
     "mark-no-response-hourly": {
         "task": "leadpilot.leads.mark_no_response",
         "schedule": crontab(minute=15),

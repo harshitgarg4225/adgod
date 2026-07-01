@@ -10,7 +10,7 @@ from sqlalchemy import text
 
 from leadpilot.common.config import settings
 from leadpilot.common.logging import get_logger
-from leadpilot.core.db import platform_session
+from leadpilot.core.db import platform_session, tenant_session
 from leadpilot.saathi.workflow import get_workflow_runner
 from leadpilot.worker.celery_app import app
 
@@ -78,6 +78,70 @@ _RETENTION = {
     # webhook intake records once processed
     "inbound_events": ("processed_at IS NOT NULL AND created_at <", 30),
 }
+
+
+@app.task(name="leadpilot.workflow.progress_accounts")
+def progress_accounts() -> dict:
+    """Autonomously advance accounts through the pre-live pipeline — the 'set-and-forget'
+    backstop so an account never stalls waiting for a UI click:
+      SIGNED_UP/ONBOARDING (+business profile) → research
+      RESEARCHED                                → creative (image + video)
+      CREATIVE_GENERATED/APPROVED (+connections+approved creatives) → launch
+
+    Idempotent by phase (each advance moves the phase forward). Launch only fires when the
+    Meta+WhatsApp connections and approved creatives exist — it can't put ads live without
+    them. Per-account try/except so one failure never blocks the rest."""
+    from sqlalchemy import func, select
+
+    from leadpilot.core.models import (
+        BusinessProfile,
+        Creative,
+        MetaConnection,
+        WhatsAppConnection,
+    )
+    from leadpilot.saathi import pipeline
+
+    advanced = {"research": 0, "creative": 0, "launch": 0}
+    with platform_session() as s:
+        rows = s.execute(text(
+            "SELECT tenant_id, id, phase FROM accounts WHERE deleted_at IS NULL AND phase IN "
+            "('SIGNED_UP','ONBOARDING','RESEARCHED','CREATIVE_GENERATED','APPROVED')"
+        )).all()
+
+    for tenant_id, account_id, phase in rows:
+        try:
+            if phase in ("SIGNED_UP", "ONBOARDING"):
+                with tenant_session(tenant_id) as s:
+                    ready = s.scalar(
+                        select(BusinessProfile.id).where(BusinessProfile.account_id == account_id))
+                if ready:
+                    with tenant_session(tenant_id) as s:
+                        pipeline.run_research(s, tenant_id=tenant_id, account_id=account_id)
+                    advanced["research"] += 1
+            elif phase == "RESEARCHED":
+                with tenant_session(tenant_id) as s:
+                    pipeline.run_creative(s, tenant_id=tenant_id, account_id=account_id)
+                advanced["creative"] += 1
+            elif phase in ("CREATIVE_GENERATED", "APPROVED"):
+                with tenant_session(tenant_id) as s:
+                    has_meta = s.scalar(
+                        select(MetaConnection.id).where(MetaConnection.account_id == account_id))
+                    has_wa = s.scalar(
+                        select(WhatsAppConnection.id).where(
+                            WhatsAppConnection.account_id == account_id))
+                    approved = s.scalar(select(func.count(Creative.id)).where(
+                        Creative.account_id == account_id,
+                        Creative.approval_status == "APPROVED_FOR_LAUNCH")) or 0
+                if has_meta and has_wa and approved:
+                    with tenant_session(tenant_id) as s:
+                        pipeline.launch_campaigns(s, tenant_id=tenant_id, account_id=account_id)
+                    advanced["launch"] += 1
+        except Exception as exc:  # noqa: BLE001 - one stall must not block the fleet
+            log.warning("progress_failed", account=str(account_id), phase=phase,
+                        error=str(exc)[:200])
+    if any(advanced.values()):
+        log.info("progress_accounts", **advanced)
+    return advanced
 
 
 @app.task(name="leadpilot.leads.mark_no_response")
