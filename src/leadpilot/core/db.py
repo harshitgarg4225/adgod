@@ -30,10 +30,16 @@ _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 engine = create_engine(
     settings.db_url,
     pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
     future=True,
 )
+
+
+def dispose_engine() -> None:
+    """Drop pooled connections — call from Celery's worker_process_init so each prefork
+    child starts with its own fresh pool (never share a connection across fork)."""
+    engine.dispose()
 
 SessionFactory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 
@@ -62,6 +68,12 @@ def tenant_session(tenant_id: UUID | str) -> Iterator[Session]:
         role = _app_role()
         if role:
             session.execute(text(f"SET LOCAL ROLE {role}"))
+        elif settings.is_production:
+            # Fail-closed: without the non-superuser app role, RLS would not apply and one
+            # tenant could read another's rows. Never run a tenant query unprotected in prod.
+            raise RuntimeError(
+                "APP_TENANT_DB_ROLE must be set in production (RLS depends on it)"
+            )
         session.execute(
             text("SELECT set_config('app.tenant_id', :tid, true)"),
             {"tid": str(tenant_id)},

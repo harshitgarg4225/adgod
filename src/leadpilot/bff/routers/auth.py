@@ -28,6 +28,7 @@ from leadpilot.common.config import settings
 from leadpilot.common.errors import AuthError
 from leadpilot.common.logging import get_logger
 from leadpilot.common.ratelimit import enforce
+from leadpilot.common.requtil import client_ip
 from leadpilot.core.db import platform_session, tenant_session
 from leadpilot.core.enums import AccountPhase, TenantType, UserRole
 from leadpilot.core.models import Account, AuthOtp, Lead, Tenant, User
@@ -50,8 +51,7 @@ def otp_request(req: OtpRequest, request: Request) -> dict:
     # Throttle OTP sends: per phone and per source IP (anti-abuse / SMS-cost control).
     # fail_closed so an attacker can't defeat the SMS-cost limit by knocking Redis over.
     enforce("otp_request", req.phone, limit=5, window_s=600, fail_closed=True)
-    if request.client:
-        enforce("otp_request_ip", request.client.host, limit=20, window_s=600, fail_closed=True)
+    enforce("otp_request_ip", client_ip(request), limit=20, window_s=600, fail_closed=True)
     code = f"{secrets.randbelow(1_000_000):06d}"
     salt = secrets.token_hex(16)
     with platform_session() as s:

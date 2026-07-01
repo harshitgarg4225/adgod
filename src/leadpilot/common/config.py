@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     )
     database_url_pooled: str | None = None
     database_migration_url: str | None = None
+    db_pool_size: int = 3
+    db_max_overflow: int = 7
+    # Trust X-Forwarded-For for the real client IP (true behind a proxy like Railway).
+    trust_proxy: bool = False
     app_tenant_db_role: str = "leadpilot_app"
     # Role used by platform_session for legitimate cross-tenant work (webhooks, admin,
     # cron). Must be able to bypass RLS. Empty → use the base connection role (works only
@@ -143,16 +147,35 @@ class Settings(BaseSettings):
             w.append("MOCK_RAZORPAY=false but RAZORPAY_WEBHOOK_SECRET is empty")
         if not self.mock_llm and not (self.anthropic_api_key or self.gemini_api_key):
             w.append("MOCK_LLM=false but no LLM API key configured")
+        if not self.database_url_pooled:
+            w.append("DATABASE_URL_POOLED empty — use PgBouncer (transaction mode) so "
+                     "worker replicas don't exhaust Postgres max_connections")
+        if not self.trust_proxy:
+            w.append("TRUST_PROXY=false behind a proxy → per-IP rate limits/audit see the "
+                     "proxy IP; set TRUST_PROXY=true on Railway")
         return w
+
+    @staticmethod
+    def _with_psycopg(url: str) -> str:
+        """Force the psycopg (v3) driver. A bare postgresql:// (what Railway's
+        ${{Postgres.DATABASE_URL}} provides) maps to psycopg2, which we don't install —
+        create_engine would crash at import. Normalise so operators can paste the URL as-is."""
+        if url.startswith("postgresql+"):
+            return url
+        if url.startswith("postgresql://"):
+            return "postgresql+psycopg://" + url[len("postgresql://"):]
+        if url.startswith("postgres://"):
+            return "postgresql+psycopg://" + url[len("postgres://"):]
+        return url
 
     @property
     def db_url(self) -> str:
         """Runtime (pooled) DB URL for app services."""
-        return self.database_url_pooled or self.database_url
+        return self._with_psycopg(self.database_url_pooled or self.database_url)
 
     @property
     def migration_db_url(self) -> str:
-        return self.database_migration_url or self.database_url
+        return self._with_psycopg(self.database_migration_url or self.database_url)
 
     @property
     def is_production(self) -> bool:

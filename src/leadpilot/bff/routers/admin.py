@@ -12,6 +12,7 @@ from sqlalchemy import desc, select
 from leadpilot.bff.deps import Principal, current_principal, require_role
 from leadpilot.common.auth import issue_access_token
 from leadpilot.common.errors import NotFoundError
+from leadpilot.common.requtil import client_ip
 from leadpilot.core.db import platform_session
 from leadpilot.core.enums import AccountPhase, CampaignStatus
 from leadpilot.core.models import Account, AuditLog, Campaign, FeatureFlag, GuardrailEvent, User
@@ -71,7 +72,7 @@ def pause_account(
             camp.status = CampaignStatus.PAUSED.value
         _audit(s, actor=f"user:{principal.user_id}", action="account_pause", entity="account",
                entity_id=account_id, tenant_id=acc.tenant_id, before={"phase": before},
-               after={"phase": acc.phase}, ip=request.client.host if request.client else None)
+               after={"phase": acc.phase}, ip=client_ip(request))
         return {"ok": True, "phase": acc.phase}
 
 
@@ -89,7 +90,7 @@ def impersonate(
             raise NotFoundError("No owner for this account")
         _audit(s, actor=f"user:{principal.user_id}", action="impersonate", entity="account",
                entity_id=account_id, tenant_id=owner.tenant_id,
-               ip=request.client.host if request.client else None)
+               ip=client_ip(request))
         token = issue_access_token(user_id=str(owner.id), tenant_id=str(owner.tenant_id),
                                    account_id=str(owner.account_id), role="OWNER",
                                    token_version=owner.token_version)

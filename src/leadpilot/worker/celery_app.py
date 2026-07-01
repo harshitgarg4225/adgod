@@ -8,11 +8,25 @@ from __future__ import annotations
 
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init
 
 from leadpilot.common.config import settings
 from leadpilot.common.logging import configure_logging
+from leadpilot.common.observability import init_observability
 
 configure_logging()
+# Same fail-closed secret check the web services run — so a worker never boots on
+# dev-default JWT_SECRET / TOKEN_ENCRYPTION_KEY in production (workers decrypt Meta tokens).
+init_observability("celery-worker")
+
+
+@worker_process_init.connect
+def _init_worker_process(**_kwargs) -> None:
+    # Each prefork child gets its own DB pool — never share a connection across fork.
+    from leadpilot.core.db import dispose_engine
+
+    dispose_engine()
+
 
 app = Celery("leadpilot", broker=settings.redis_url, backend=settings.redis_url)
 
@@ -29,7 +43,6 @@ app.conf.update(
         "leadpilot.closer.*": {"queue": "closer"},
         "leadpilot.optimizer.*": {"queue": "optimizer"},
         "leadpilot.launch.*": {"queue": "launch"},
-        "leadpilot.fatigue.*": {"queue": "fatigue"},
     },
 )
 

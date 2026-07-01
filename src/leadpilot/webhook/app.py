@@ -132,6 +132,17 @@ def _process_wa_messages(payload: dict) -> int:
     return accepted
 
 
+@app.get("/webhooks/meta/leadgen")
+def meta_leadgen_verify(request: Request) -> Response:
+    """Meta's GET handshake for the Lead Ads (leadgen) callback URL — required to 'Verify
+    and Save' the subscription. Uses the Meta-specific verify token."""
+    params = request.query_params
+    expected = settings.meta_webhook_verify_token or settings.whatsapp_webhook_verify_token
+    if params.get("hub.mode") == "subscribe" and params.get("hub.verify_token") == expected:
+        return PlainTextResponse(params.get("hub.challenge", ""))
+    return PlainTextResponse("forbidden", status_code=403)
+
+
 @app.post("/webhooks/meta/leadgen")
 async def meta_leadgen(request: Request) -> JSONResponse:
     """Instant-Form (Lead Ads) leads → inbox. Idempotent on leadgen_id."""

@@ -1,0 +1,18 @@
+# Web (Next.js) Railway service — pin the Dockerfile builder so the standalone image and
+# the build-time NEXT_PUBLIC_API_BASE ARG are always used (not Nixpacks).
+#
+# IMPORTANT: NEXT_PUBLIC_API_BASE is inlined into the client bundle at BUILD time. Set it
+# as a *build* variable on this service, pointing at the public bff-api URL, e.g.
+#   NEXT_PUBLIC_API_BASE=https://api.yourdomain.com/api/v1
+# Give bff-api a stable custom domain first so this URL is known at web build time.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "node server.js"
+healthcheckPath = "/login"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

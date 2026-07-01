@@ -46,4 +46,18 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(f"DROP ROLE IF EXISTS {PLATFORM_ROLE}")
+    # The role owns GRANTs + default-privilege ACLs, so a bare DROP ROLE errors with
+    # DependentObjectsStillExist. Clear owned objects/ACLs first (guarded on existence).
+    op.execute(
+        f"""
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{PLATFORM_ROLE}') THEN
+                EXECUTE 'REASSIGN OWNED BY {PLATFORM_ROLE} TO ' || quote_ident(CURRENT_USER);
+                DROP OWNED BY {PLATFORM_ROLE};
+                DROP ROLE {PLATFORM_ROLE};
+            END IF;
+        END
+        $$;
+        """
+    )

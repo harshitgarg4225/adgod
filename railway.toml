@@ -25,7 +25,7 @@ restartPolicyMaxRetries = 5
 #   bff-api          : gunicorn leadpilot.bff.app:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
 #   webhook-intake   : gunicorn leadpilot.webhook.app:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
 #   closer-worker    : celery -A leadpilot.worker.celery_app worker -Q closer -c 4 -n closer@%h
-#   agent-worker     : celery -A leadpilot.worker.celery_app worker -Q agent,optimizer,launch,fatigue -c 4 -n agent@%h
+#   agent-worker     : celery -A leadpilot.worker.celery_app worker -Q agent,optimizer,launch -c 4 -n agent@%h
 #   cron-dispatch    : celery -A leadpilot.worker.celery_app beat
 #   web-next         : (separate Node service) npm run start  (root: web/)
 #

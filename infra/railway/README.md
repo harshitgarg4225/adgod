@@ -54,7 +54,7 @@ Set each service's **Custom Start Command**:
 | `bff-api` | `gunicorn leadpilot.bff.app:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT` | `/health` |
 | `webhook-intake` | `gunicorn leadpilot.webhook.app:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT` | `/health` |
 | `closer-worker` | `celery -A leadpilot.worker.celery_app worker -Q closer -c 4 -n closer@%h` | — |
-| `agent-worker` | `celery -A leadpilot.worker.celery_app worker -Q agent,optimizer,launch,fatigue -c 4 -n agent@%h` | — |
+| `agent-worker` | `celery -A leadpilot.worker.celery_app worker -Q agent,optimizer,launch -c 4 -n agent@%h` | — |
 | `cron-dispatch` | `celery -A leadpilot.worker.celery_app beat` | — |
 
 The web frontend is a **separate Node service** rooted at `web/`:
