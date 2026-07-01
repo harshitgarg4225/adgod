@@ -43,6 +43,7 @@ from leadpilot.core.outbox import enqueue_effect
 from leadpilot.integrations.whatsapp.base import InboundMessage
 from leadpilot.saathi.agents.closer import CloserAgent
 from leadpilot.saathi.guardrails.engine import GuardrailEngine
+from leadpilot.saathi.outbound import enqueue_send
 from leadpilot.saathi.textutil import is_junk
 
 log = get_logger("orchestrator")
@@ -133,20 +134,28 @@ class Orchestrator:
         junk_turns = self._prior_junk_turns(session, conversation.id)
         state = conversation.state
 
-        output = self.closer.run(
-            session,
-            tenant_id=tenant_id,
-            account_id=account_id,
-            state=state,
-            captured=self._lead_captured(lead),
-            user_text=inbound.text,
-            business_name=account.business_name,
-            category=account.category,
-            city=city,
-            language=language,
-            junk_turns=junk_turns,
-            input_ref=inbound.wa_message_id,
-        )
+        try:
+            output = self.closer.run(
+                session,
+                tenant_id=tenant_id,
+                account_id=account_id,
+                state=state,
+                captured=self._lead_captured(lead),
+                user_text=inbound.text,
+                business_name=account.business_name,
+                category=account.category,
+                city=city,
+                language=language,
+                junk_turns=junk_turns,
+                input_ref=inbound.wa_message_id,
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade gracefully, never drop a paid lead
+            # LLM/provider down or budget exceeded: send a safe canned acknowledgement and
+            # hand the chat to the owner, rather than leaving the lead with no reply.
+            log.warning("closer_degraded", lead_id=str(lead.id), error=str(exc)[:200])
+            return self._degrade_to_handoff(
+                session, tenant_id, account_id, lead, conversation, inbound, language
+            )
 
         guard = GuardrailEngine(session, tenant_id=tenant_id, account_id=account_id)
         scope = guard.closer_scope(output)
@@ -321,6 +330,42 @@ class Orchestrator:
                 tenant_id=tenant_id, account_id=account_id, kind=kind.value,
                 title=title, body=body, ref_id=ref_id,
             )
+        )
+
+    def _degrade_to_handoff(
+        self, session: Session, tenant_id: UUID, account_id: UUID, lead: Lead,
+        conversation: Conversation, inbound: InboundMessage, language: str,
+    ) -> InboundResult:
+        """Fallback when the Closer LLM is unavailable: acknowledge the lead with a safe
+        canned message (inside the still-open service window) and hand off to the owner."""
+        body = (
+            "धन्यवाद! 🙏 हमारी टीम आपसे जल्द ही संपर्क करेगी।"
+            if language == "hi"
+            else "Thank you! 🙏 Our team will reach out to you shortly."
+        )
+        enqueue_send(
+            session,
+            tenant_id=tenant_id,
+            account_id=account_id,
+            conversation_id=conversation.id,
+            phone_number_id=inbound.phone_number_id,
+            to_phone=inbound.from_phone,
+            step_id=f"{inbound.wa_message_id}:degraded",
+            kind="text",
+            body=body,
+        )
+        conversation.state = ConversationState.HANDOFF.value
+        conversation.last_outbound_at = _now()
+        lead.status = LeadStatus.HANDED_OFF.value
+        self._notify(
+            session, tenant_id, account_id, NotificationKind.ANOMALY,
+            title="A lead needs your attention",
+            body="Saathi couldn't auto-reply just now. Please take over this chat.",
+            ref_id=lead.id,
+        )
+        return InboundResult(
+            lead.id, conversation.id, sent=True, blocked=False,
+            score=None, next_state=conversation.state, hot=False,
         )
 
     @staticmethod

@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
+from starlette.concurrency import run_in_threadpool
 
 from leadpilot.common.config import settings
 from leadpilot.common.logging import configure_logging, get_logger
@@ -100,9 +101,16 @@ async def whatsapp_inbound(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
-    messages = WhatsAppAdapter.parse_inbound(payload)
+    # The per-message work is synchronous DB + broker I/O; run it in a threadpool so it
+    # never blocks the async event loop (which serves every other inbound webhook).
+    accepted = await run_in_threadpool(_process_wa_messages, payload)
+    # Always 200 so Meta does not retry storms; we've durably recorded what we accepted.
+    return JSONResponse({"accepted": accepted}, status_code=200)
+
+
+def _process_wa_messages(payload: dict) -> int:
     accepted = 0
-    for msg in messages:
+    for msg in WhatsAppAdapter.parse_inbound(payload):
         if not msg.wa_message_id or not msg.phone_number_id:
             continue
         route = resolve_wa_route(msg.phone_number_id)
@@ -118,13 +126,10 @@ async def whatsapp_inbound(request: Request) -> JSONResponse:
             payload={"message": asdict(msg)},
         )
         if event_id is None:
-            # Duplicate delivery — already recorded; do not re-enqueue.
-            continue
+            continue  # duplicate delivery — already recorded
         enqueue_closer(str(event_id))
         accepted += 1
-
-    # Always 200 so Meta does not retry storms; we've durably recorded what we accepted.
-    return JSONResponse({"accepted": accepted}, status_code=200)
+    return accepted
 
 
 @app.post("/webhooks/meta/leadgen")
@@ -134,6 +139,11 @@ async def meta_leadgen(request: Request) -> JSONResponse:
     if not _meta_signature_ok(body, request.headers.get("X-Hub-Signature-256")):
         return JSONResponse({"error": "invalid signature"}, status_code=403)
     payload = json.loads(body or b"{}")
+    accepted = await run_in_threadpool(_process_leadgen, payload)
+    return JSONResponse({"accepted": accepted}, status_code=200)
+
+
+def _process_leadgen(payload: dict) -> int:
     accepted = 0
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
@@ -151,7 +161,7 @@ async def meta_leadgen(request: Request) -> JSONResponse:
             name, phone = _extract_lead_fields(v)
             capture_leadgen(page_id=page_id, leadgen_id=leadgen_id, name=name, phone=phone)
             accepted += 1
-    return JSONResponse({"accepted": accepted}, status_code=200)
+    return accepted
 
 
 @app.post("/webhooks/razorpay")
@@ -175,12 +185,20 @@ async def razorpay_webhook(request: Request) -> JSONResponse:
     sub_id = sub.get("id")
     if event and sub_id:
         dedupe_key = event_uid or f"{event}:{sub_id}:{sub.get('current_end', '')}"
-        if record_inbound_event(
-            provider="razorpay", external_id=dedupe_key,
-            tenant_id=None, account_id=None, payload=payload,
-        ) is None:
-            return JSONResponse({"status": "duplicate"}, status_code=200)
         end = sub.get("current_end")
         period_end = datetime.fromtimestamp(end, UTC) if end else None
-        apply_razorpay_event(event=event, subscription_id=sub_id, period_end=period_end)
+        status = await run_in_threadpool(
+            _apply_razorpay, dedupe_key, payload, event, sub_id, period_end
+        )
+        return JSONResponse({"status": status}, status_code=200)
     return JSONResponse({"status": "ok"}, status_code=200)
+
+
+def _apply_razorpay(dedupe_key, payload, event, sub_id, period_end) -> str:
+    if record_inbound_event(
+        provider="razorpay", external_id=dedupe_key,
+        tenant_id=None, account_id=None, payload=payload,
+    ) is None:
+        return "duplicate"
+    apply_razorpay_event(event=event, subscription_id=sub_id, period_end=period_end)
+    return "ok"

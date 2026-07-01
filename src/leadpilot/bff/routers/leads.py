@@ -289,25 +289,36 @@ def _saathi_status(phase: str, paused: bool, qualified_today: int) -> str:
 def export_leads_csv(
     account_id: str, principal: Principal = Depends(current_principal)
 ) -> StreamingResponse:
-    """Export leads as CSV (PRD §6.7.2, Pro). PII stays within the owner's own tenant (RLS)."""
+    """Export leads as CSV (PRD §6.7.2, Pro). PII stays within the owner's own tenant (RLS).
+
+    Streamed with a server-side cursor (yield_per) so a large export never materialises the
+    whole table in memory."""
     require_account_access(principal, account_id)
-    with tenant_session(principal.tenant_id) as session:
-        rows = session.scalars(
-            select(Lead).where(Lead.account_id == account_id)
-            .order_by(Lead.created_at.desc())
-        ).all()
+    tenant_id = principal.tenant_id
+
+    def _row(values: list) -> str:
         buf = io.StringIO()
-        w = csv.writer(buf)
-        w.writerow(["name", "phone", "score", "status", "intent", "location",
+        csv.writer(buf).writerow(values)
+        return buf.getvalue()
+
+    def _stream():
+        yield _row(["name", "phone", "score", "status", "intent", "location",
                     "owner_action", "created_at"])
-        for r in rows:
-            w.writerow([_csv_safe(r.name or ""), _csv_safe(r.wa_phone), r.score or "",
-                        r.status, _csv_safe(r.intent_summary or ""),
-                        _csv_safe(r.location_signal or ""), r.owner_action,
-                        r.created_at.isoformat()])
-    buf.seek(0)
+        # The session stays open for the life of the generator (StreamingResponse pulls lazily).
+        with tenant_session(tenant_id) as session:
+            result = session.execute(
+                select(Lead).where(Lead.account_id == account_id)
+                .order_by(Lead.created_at.desc())
+                .execution_options(yield_per=500)
+            )
+            for r in result.scalars():
+                yield _row([_csv_safe(r.name or ""), _csv_safe(r.wa_phone), r.score or "",
+                            r.status, _csv_safe(r.intent_summary or ""),
+                            _csv_safe(r.location_signal or ""), r.owner_action,
+                            r.created_at.isoformat()])
+
     return StreamingResponse(
-        iter([buf.getvalue()]), media_type="text/csv",
+        _stream(), media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=leads.csv"},
     )
 

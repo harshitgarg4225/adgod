@@ -159,6 +159,27 @@ def connect_meta(body: MetaConnectIn, principal: Principal = Depends(current_pri
     return {"status": "connected", "ad_account_id": body.ad_account_id}
 
 
+@router.get("/meta/embedded-signup/start")
+def meta_embedded_signup_start(principal: Principal = Depends(current_principal)) -> dict:
+    """Return the Meta Embedded-Signup OAuth dialog URL to open in a popup — the owner
+    authorises once and we receive the ad-account/Page/token via the callback, so they
+    never paste raw IDs. `configured=false` (no Meta app id) tells the UI to fall back to
+    the manual connect fields for local/dev."""
+    if not principal.account_id:
+        raise NotFoundError("No account")
+    configured = bool(settings.meta_app_id)
+    redirect_uri = f"{settings.web_base_url}/onboarding/connect"
+    scope = "ads_management,business_management,whatsapp_business_management,pages_show_list"
+    url = (
+        f"https://www.facebook.com/{settings.meta_graph_api_version}/dialog/oauth"
+        f"?client_id={settings.meta_app_id or ''}"
+        f"&redirect_uri={redirect_uri}"
+        f"&state={principal.account_id}"
+        f"&scope={scope}"
+    ) if configured else ""
+    return {"configured": configured, "url": url}
+
+
 @router.post("/meta/embedded-signup/callback")
 def meta_embedded_signup(body: EmbeddedSignupIn, principal: Principal = Depends(current_principal)) -> dict:
     """Exchange the Embedded-Signup OAuth code for a long-lived token (encrypted at rest).

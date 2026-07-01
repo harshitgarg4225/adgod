@@ -83,6 +83,27 @@ export default function Connect() {
           />
         )}
 
+        {/* Meta connect — one-tap OAuth (Embedded Signup); manual is the dev fallback */}
+        <Button
+          fullWidth
+          variant="secondary"
+          leftIcon="shield"
+          onClick={async () => {
+            try {
+              const r = await api.metaEmbeddedStart();
+              if (r.configured && r.url) window.location.href = r.url;
+              else {
+                setShowAdvanced(true);
+                toast.show(t("connect.manualHint", "Enter your Meta details below to connect."), "info");
+              }
+            } catch (e: any) {
+              toast.show(e.userMessage || t("common.somethingWrong", "Could not start."), "error");
+            }
+          }}
+        >
+          {t("connect.withFacebook", "Connect with Facebook")}
+        </Button>
+
         {/* Advanced: Meta ad account — optional, Saathi helps in production */}
         <Card className="!p-0">
           <button

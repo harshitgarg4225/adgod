@@ -194,6 +194,8 @@ export const api = {
     }),
   onboardingStatus: () =>
     req<{ phase: string; missing_steps: string[] }>("/onboarding/status"),
+  metaEmbeddedStart: () =>
+    req<{ configured: boolean; url: string }>("/onboarding/meta/embedded-signup/start"),
   connectWhatsApp: (body: {
     mode: string;
     phone?: string;

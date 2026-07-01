@@ -9,6 +9,7 @@ from __future__ import annotations
 import httpx
 
 from leadpilot.common.config import settings
+from leadpilot.common.http_retry import request_with_retry
 from leadpilot.integrations.meta.base import InsightRow, MetaAdapter
 
 _GRAPH = "https://graph.facebook.com"
@@ -26,15 +27,17 @@ class CloudMetaAdapter(MetaAdapter):  # pragma: no cover - requires live Meta cr
         return {"Authorization": f"Bearer {self._token}"}
 
     def _post(self, path: str, data: dict) -> dict:
-        resp = self._client.post(
-            f"{_GRAPH}/{self._v}/{path}", data=data, headers=self._auth_headers
+        url = f"{_GRAPH}/{self._v}/{path}"
+        resp = request_with_retry(
+            lambda: self._client.post(url, data=data, headers=self._auth_headers)
         )
         resp.raise_for_status()
         return resp.json()
 
     def _get(self, path: str, params: dict) -> dict:
-        resp = self._client.get(
-            f"{_GRAPH}/{self._v}/{path}", params=params, headers=self._auth_headers
+        url = f"{_GRAPH}/{self._v}/{path}"
+        resp = request_with_retry(
+            lambda: self._client.get(url, params=params, headers=self._auth_headers)
         )
         resp.raise_for_status()
         return resp.json()
