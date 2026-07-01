@@ -168,9 +168,10 @@ class CampaignStatus(StrEnum):
 
 
 class AdSetRole(StrEnum):
-    PROSPECTING = "PROSPECTING"
+    PROSPECTING = "PROSPECTING"   # proven winners (the "SCALE" tier)
     LOOKALIKE = "LOOKALIKE"
-    TESTING = "TESTING"
+    TESTING = "TESTING"           # 1 creative per ad set, in isolation
+    RETARGETING = "RETARGETING"   # site/video viewers
 
 
 class CreativeFormat(StrEnum):
@@ -200,7 +201,8 @@ class InsightLevel(StrEnum):
 class OptimizationAction(StrEnum):
     PAUSE = "PAUSE"
     SCALE = "SCALE"
-    REALLOCATE = "REALLOCATE"
+    REALLOCATE = "REALLOCATE"     # move freed budget from losers to winners
+    PROMOTE = "PROMOTE"           # a test winner graduates into the prospecting tier
     REQUEST_CREATIVE = "REQUEST_CREATIVE"
     RESUME = "RESUME"
     NO_OP = "NO_OP"

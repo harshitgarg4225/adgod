@@ -66,10 +66,18 @@ from leadpilot.saathi.providers.creative import get_creative_provider
 log = get_logger("pipeline")
 
 # Budget split (PRD §6.4.2) and optimization thresholds (PRD §6.5).
-BUDGET_SPLIT = {AdSetRole.PROSPECTING: 70, AdSetRole.LOOKALIKE: 20, AdSetRole.TESTING: 10}
+# 3-tier structure: proven winners get the bulk, retargeting warms visitors, a thin slice
+# tests new creative in isolation so an unproven ad can't disrupt the winners.
+BUDGET_SPLIT = {AdSetRole.PROSPECTING: 65, AdSetRole.RETARGETING: 20, AdSetRole.TESTING: 15}
 MIN_SPEND_THRESHOLD_PAISE = 10000   # ₹100 before a pause decision
-FATIGUE_FREQUENCY = 3.0
+# Optimizer thresholds (a steady lead stream comes from killing fatigue + reallocating to
+# winners on a loop, not from launching once).
+FATIGUE_FREQUENCY = 4.0             # audience saturation → refresh creative
 FATIGUE_CTR = 0.01                  # CTR below 1% with high frequency → fatigue
+ZERO_CONV_SPEND_MULTIPLE = 2        # spent ≥ 2× target CPQL with 0 leads → kill
+HIGH_CPL_MULTIPLE = 3               # CPL > 3× target → kill
+WINNER_MIN_LEADS = 5               # a "proven" winner (efficient + enough volume)
+EMERGENCY_DAY_MULTIPLE = 1.25       # day spend ≥ 1.25× budget → emergency pause-all
 
 
 def _now() -> datetime:
@@ -245,8 +253,9 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
 
     city = profile.service_area_city if profile else "Indore"
     radius = profile.service_radius_km if profile else 10
-    # Always build PROSPECTING + TESTING; LOOKALIKE only if a seed exists (none in v1).
-    roles = [AdSetRole.PROSPECTING, AdSetRole.TESTING]
+    # 3-tier structure: PROSPECTING (proven, 65%) + RETARGETING (visitors, 20%) +
+    # TESTING (new creative in isolation, 15%). Testing winners graduate to prospecting.
+    roles = [AdSetRole.PROSPECTING, AdSetRole.RETARGETING, AdSetRole.TESTING]
     split_total = sum(BUDGET_SPLIT[r] for r in roles)
     for role in roles:
         budget = daily_budget * BUDGET_SPLIT[role] // split_total
@@ -254,6 +263,9 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
             "geo_locations": {"cities": [{"name": city, "radius": radius, "distance_unit": "kilometer"}]},
             "age_min": 18, "age_max": 55, "_role": role.value,
         }
+        if role == AdSetRole.RETARGETING:
+            # Warm audience: people who engaged with the ads / clicked to WhatsApp.
+            targeting["custom_audiences"] = [{"type": "ENGAGEMENT", "lookback_days": 30}]
         meta_adset_id = meta.create_adset(
             ad_account_id=ad_account_id, campaign_id=meta_campaign_id,
             name=f"{role.value} {city}", targeting=targeting, daily_budget_paise=budget,
@@ -334,6 +346,34 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
     session.add(run)
     session.flush()
 
+    # Emergency stop: if the day's spend has blown past the budget (runaway), pause
+    # everything and escalate — the ultimate spend safety net. Only meaningful against real
+    # Meta spend (the mock's synthetic numbers aren't calibrated to the budget).
+    day_spend = sum(r.spend_paise for r in rows)
+    if not settings.mock_meta and total_budget and day_spend >= int(EMERGENCY_DAY_MULTIPLE * total_budget):
+        for adset in ad_sets:
+            if adset.meta_adset_id:
+                meta.set_status(level="ADSET", meta_id=adset.meta_adset_id, status="PAUSED")
+            adset.status = CampaignStatus.PAUSED.value
+            session.add(OptimizationDecision(
+                tenant_id=tenant_id, account_id=account_id, run_id=run.id,
+                level=InsightLevel.ADSET.value, ref_id=adset.id,
+                action=OptimizationAction.PAUSE.value, reason_code="emergency_daily_cap",
+                before={"budget_paise": adset.budget_paise}, after={}, applied=True))
+        account.phase = AccountPhase.PAUSED.value
+        session.add(Notification(
+            tenant_id=tenant_id, account_id=account_id, kind=NotificationKind.ANOMALY.value,
+            title="Ads paused for safety",
+            body="Today's spend hit the safety limit, so Saathi paused everything. Review in Settings."))
+        log.warning("optimizer_emergency_pause", account=str(account_id), day_spend=day_spend)
+        return [{"adset": str(a.id), "action": "PAUSE", "reason": "emergency_daily_cap"}
+                for a in ad_sets]
+
+    # Track freed budget (from kills) and winners (to reallocate toward) — the
+    # refresh-and-reallocate loop is what keeps leads flowing instead of decaying.
+    freed_paise = 0
+    winners: list[AdSet] = []
+
     for adset in ad_sets:
         row = by_meta.get(adset.meta_adset_id)
         if row is None:
@@ -356,6 +396,7 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
             action, reason, after = OptimizationAction.PAUSE, f"anomaly:{anomaly.detail['reason']}", {}
             meta.set_status(level="ADSET", meta_id=adset.meta_adset_id, status="PAUSED")
             adset.status = CampaignStatus.PAUSED.value
+            freed_paise += adset.budget_paise  # reclaim for winners
             session.add(Notification(
                 tenant_id=tenant_id, account_id=account_id, kind=NotificationKind.ANOMALY.value,
                 title="Paused an ad set", body="Saathi paused an underperforming ad set and is reviewing."))
@@ -364,10 +405,22 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
             if action == OptimizationAction.PAUSE:
                 meta.set_status(level="ADSET", meta_id=adset.meta_adset_id, status="PAUSED")
                 adset.status = CampaignStatus.PAUSED.value
+                freed_paise += adset.budget_paise  # reclaim for winners
             elif action == OptimizationAction.SCALE:
                 meta.set_adset_budget(meta_adset_id=adset.meta_adset_id,
                                       daily_budget_paise=after["budget_paise"])
                 adset.budget_paise = after["budget_paise"]
+                winners.append(adset)
+                # Promote a proven test winner into the prospecting tier (isolation → scale).
+                if reason == "proven_winner" and adset.role == AdSetRole.TESTING.value:
+                    adset.role = AdSetRole.PROSPECTING.value
+                    session.add(OptimizationDecision(
+                        tenant_id=tenant_id, account_id=account_id, run_id=run.id,
+                        level=InsightLevel.ADSET.value, ref_id=adset.id,
+                        action=OptimizationAction.PROMOTE.value, reason_code="test_winner_promoted",
+                        before={"role": "TESTING"}, after={"role": "PROSPECTING"}, applied=True))
+                    decisions.append({"adset": str(adset.id), "action": "PROMOTE",
+                                      "reason": "test_winner_promoted", "cpl_paise": cpl})
             elif action == OptimizationAction.REQUEST_CREATIVE:
                 # Fatigue refresh (PRD §6.5.2): Maker → Buyer rotate fresh creative into Testing.
                 rotate_fresh_creative(session, tenant_id=tenant_id, account_id=account_id)
@@ -385,6 +438,27 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
         decisions.append({"adset": str(adset.id), "action": action.value, "reason": reason,
                           "cpl_paise": cpl})
 
+    # Reallocate the budget freed from killed ad sets to the winners (70/20/10 spirit) —
+    # each still bounded by the +20%/day guardrail so total spend stays within the cap.
+    if freed_paise > 0 and winners:
+        share = freed_paise // len(winners)
+        for adset in winners:
+            headroom = clamp_scale(current_paise=adset.budget_paise,
+                                   proposed_paise=adset.budget_paise + share) - adset.budget_paise
+            if headroom <= 0:
+                continue
+            new_budget = adset.budget_paise + headroom
+            meta.set_adset_budget(meta_adset_id=adset.meta_adset_id, daily_budget_paise=new_budget)
+            session.add(OptimizationDecision(
+                tenant_id=tenant_id, account_id=account_id, run_id=run.id,
+                level=InsightLevel.ADSET.value, ref_id=adset.id,
+                action=OptimizationAction.REALLOCATE.value, reason_code="reallocate_to_winner",
+                before={"budget_paise": adset.budget_paise},
+                after={"budget_paise": new_budget}, applied=True))
+            adset.budget_paise = new_budget
+            decisions.append({"adset": str(adset.id), "action": "REALLOCATE",
+                              "reason": "reallocate_to_winner", "cpl_paise": None})
+
     if account.phase == AccountPhase.LIVE.value:
         account.phase = AccountPhase.OPTIMIZING.value
     log.info("optimize_done", account=str(account_id), decisions=len(decisions))
@@ -392,18 +466,25 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
 
 
 def _decide(adset: AdSet, row, cpl, target_cpql, total_budget):
-    """Rule baseline (PRD §6.5.1). Bounds are deterministic; the LLM cannot exceed them."""
-    # Pause runaway losers after minimum spend.
-    if cpl is not None and cpl > 2 * target_cpql and row.spend_paise >= MIN_SPEND_THRESHOLD_PAISE:
-        return OptimizationAction.PAUSE, "cpl_over_2x_target", {"status": "PAUSED"}
-    # Fatigue → request fresh creative.
-    if row.frequency > FATIGUE_FREQUENCY and row.ctr < FATIGUE_CTR:
-        return OptimizationAction.REQUEST_CREATIVE, "fatigue_freq_ctr", {}
-    # Scale efficient ad sets (+20%/day max), within the account budget.
-    if cpl is not None and cpl < target_cpql and row.leads > 0:
+    """Kill-losers / scale-winners / refresh-fatigue rule engine. All bounds are
+    deterministic — the guardrails cap what any decision can move (§6.5.1)."""
+    # Kill: real spend with zero conversions.
+    if row.leads == 0 and row.spend_paise >= ZERO_CONV_SPEND_MULTIPLE * target_cpql:
+        return OptimizationAction.PAUSE, "zero_conversions", {"status": "PAUSED"}
+    # Kill: runaway cost per lead.
+    if (cpl is not None and cpl > HIGH_CPL_MULTIPLE * target_cpql
+            and row.spend_paise >= MIN_SPEND_THRESHOLD_PAISE):
+        return OptimizationAction.PAUSE, "cpl_over_3x_target", {"status": "PAUSED"}
+    # Refresh: audience saturation (frequency) burns out a creative — rotate a fresh one in
+    # rather than just pausing, so the lead stream never decays after a few days.
+    if row.frequency > FATIGUE_FREQUENCY:
+        return OptimizationAction.REQUEST_CREATIVE, "fatigue_frequency", {}
+    # Scale: efficient ad set (CPL ≤ target) with conversions. +20%/day cap.
+    if cpl is not None and cpl <= target_cpql and row.leads >= 1:
         scaled = clamp_scale(current_paise=adset.budget_paise,
                              proposed_paise=int(adset.budget_paise * 1.2))
-        return OptimizationAction.SCALE, "cpl_below_target", {"budget_paise": scaled}
+        reason = "proven_winner" if row.leads >= WINNER_MIN_LEADS else "efficient_scale"
+        return OptimizationAction.SCALE, reason, {"budget_paise": scaled}
     return OptimizationAction.NO_OP, "stable", {}
 
 

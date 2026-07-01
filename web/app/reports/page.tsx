@@ -129,6 +129,7 @@ function actionIcon(action: string): string {
     {
       PAUSE: "pause",
       SCALE: "reports",
+      PROMOTE: "sparkle",
       REQUEST_CREATIVE: "sparkle",
       REALLOCATE: "billing",
       RESUME: "play",
@@ -141,6 +142,7 @@ function actionLabel(action: string, t: (k: string, f: string) => string): strin
     {
       PAUSE: t("reports.act.pause", "Paused a weak ad set"),
       SCALE: t("reports.act.scale", "Scaled up a winner"),
+      PROMOTE: t("reports.act.promote", "Promoted a winning test ad"),
       REQUEST_CREATIVE: t("reports.act.creative", "Refreshing tired ads"),
       REALLOCATE: t("reports.act.realloc", "Moved budget to what works"),
       RESUME: t("reports.act.resume", "Resumed an ad set"),
@@ -152,10 +154,14 @@ function reasonLabel(code: string | null, t: (k: string, f: string) => string): 
   if (!code) return t("reports.reason.routine", "Routine optimisation");
   return (
     {
-      HIGH_CPL: t("reports.reason.highCpl", "It was costing too much per lead"),
-      LOW_CTR: t("reports.reason.lowCtr", "Too few people were clicking"),
-      WINNER: t("reports.reason.winner", "It was bringing cheap, quality leads"),
-      FATIGUE: t("reports.reason.fatigue", "People had seen it too many times"),
+      zero_conversions: t("reports.reason.zero", "It spent without getting any leads"),
+      cpl_over_3x_target: t("reports.reason.highCpl", "It was costing too much per lead"),
+      fatigue_frequency: t("reports.reason.fatigue", "People had seen it too many times"),
+      proven_winner: t("reports.reason.winner", "It was bringing cheap, quality leads"),
+      efficient_scale: t("reports.reason.efficient", "It's working — giving it more budget"),
+      reallocate_to_winner: t("reports.reason.realloc", "Moved budget from a weak ad to a winner"),
+      test_winner_promoted: t("reports.reason.promoted", "A test ad proved itself"),
+      emergency_daily_cap: t("reports.reason.emergency", "Hit the daily safety limit"),
     } as Record<string, string>
   )[code] || code.replace(/_/g, " ").toLowerCase();
 }

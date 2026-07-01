@@ -61,9 +61,9 @@ def test_full_pipeline_to_optimizing(seeded):
         camp = s.scalar(select(Campaign).where(Campaign.account_id == DEMO_ACCOUNT_ID))
         assert camp.status == "ACTIVE" and camp.meta_campaign_id
         adsets = s.scalars(select(AdSet).where(AdSet.account_id == DEMO_ACCOUNT_ID)).all()
-        assert {a.role for a in adsets} == {"PROSPECTING", "TESTING"}
+        assert {a.role for a in adsets} == {"PROSPECTING", "RETARGETING", "TESTING"}
         assert all(a.meta_adset_id for a in adsets)
-        # Budget split sums within the daily budget (70/20/10 envelope; lookalike absent).
+        # Budget split sums within the daily budget (65/20/15 across the three tiers).
         assert sum(a.budget_paise for a in adsets) <= 50000
         assert s.scalar(select(func.count(Ad.id)).where(Ad.account_id == DEMO_ACCOUNT_ID)) >= 2
         assert s.get(Account, DEMO_ACCOUNT_ID).phase == "LIVE"
