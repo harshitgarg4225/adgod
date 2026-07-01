@@ -41,7 +41,23 @@ export default function CreativesPage() {
     load();
   }, [load]);
 
-  const blocked = (creatives || []).some((c) => c.compliance_status !== "PASSED");
+  async function setApproval(id: string, approve: boolean) {
+    try {
+      if (approve) await api.approveCreative(id);
+      else await api.rejectCreative(id);
+      setCreatives((cs) =>
+        (cs || []).map((c) =>
+          c.id === id ? { ...c, approval_status: approve ? "APPROVED_FOR_LAUNCH" : "REJECTED" } : c
+        )
+      );
+    } catch (e: any) {
+      toast.show(e.userMessage || t("common.somethingWrong", "Could not update."), "error");
+    }
+  }
+
+  // Launch is blocked if any kept creative fails policy, or all creatives are rejected.
+  const kept = (creatives || []).filter((c) => c.approval_status !== "REJECTED");
+  const blocked = kept.length === 0 || kept.some((c) => c.compliance_status !== "PASSED");
 
   async function launch() {
     setBusy(true);
@@ -91,6 +107,22 @@ export default function CreativesPage() {
                     {ok ? t("creatives.policyOk", "Policy OK") : t("creatives.needsFix", "Needs a fix")}
                   </Badge>
                   <span className="text-2xs uppercase tracking-wide text-ink-faint">{c.language}</span>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  {c.approval_status === "REJECTED" ? (
+                    <Button size="sm" variant="secondary" className="flex-1" onClick={() => setApproval(c.id, true)}>
+                      {t("creatives.keep", "Keep this")}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="flex-1 !text-hot"
+                      onClick={() => setApproval(c.id, false)}
+                    >
+                      {t("creatives.reject", "Remove")}
+                    </Button>
+                  )}
                 </div>
               </div>
             </Card>

@@ -45,6 +45,33 @@ def _txt(lang: str, hi: str, en: str) -> str:
     return hi if lang == "hi" else en
 
 
+_TIMELINE_WORDS = (
+    "soon", "today", "tomorrow", "week", "month", "asap", "urgent", "immediately",
+    "explor", "later", "जल्दी", "आज", "कल", "हफ्ते", "महीने", "अभी", "बाद",
+)
+
+
+def _split_budget_timeline(text: str) -> tuple[str | None, str | None]:
+    """Separate a combined budget+timeline answer into distinct signals so scoring can
+    weigh them independently (they were previously stuffed into the same field, degrading
+    qualification fidelity)."""
+    import re
+
+    t = (text or "").strip()
+    if not t:
+        return None, None
+    # Budget: any run containing digits (with optional ₹/k/lakh) is a money signal.
+    money = re.findall(r"(?:₹\s*)?\d[\d,]*\s*(?:k|hazaar|hazar|thousand|lakh|lac|l)?", t, re.I)
+    budget = " ".join(m.strip() for m in money if m.strip()) or None
+    # Timeline: keep clauses mentioning a time word.
+    low = t.lower()
+    timeline = t if any(w in low for w in _TIMELINE_WORDS) else None
+    # If neither matched, treat the whole answer as budget context (better than nothing).
+    if budget is None and timeline is None:
+        budget = t[:120]
+    return (budget[:120] if budget else None, timeline[:120] if timeline else None)
+
+
 def _extract_name(text: str) -> str:
     """Best-effort name extraction from common Hindi/English self-introductions."""
     import re
@@ -144,8 +171,9 @@ def _closer(ctx: dict) -> CloserOutput:
         )
 
     if state == "CAPTURE_BUDGET_TIMELINE":
-        captured.budget = user_text[:120] or captured.budget
-        captured.timeline = user_text[:120] or captured.timeline
+        budget, timeline = _split_budget_timeline(user_text)
+        captured.budget = budget or captured.budget
+        captured.timeline = timeline or captured.timeline
         return CloserOutput(
             reply=CloserReply(
                 type="text",

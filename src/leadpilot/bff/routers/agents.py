@@ -7,10 +7,12 @@ either way). All writes are tenant-scoped + access-checked.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from leadpilot.bff.deps import Principal, current_principal, require_account_access
 from leadpilot.common.config import settings
+from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.core.db import tenant_session
 from leadpilot.core.models import (
     AdInsight,
@@ -108,6 +110,73 @@ def approve_creative(creative_id: str, principal: Principal = Depends(current_pr
         require_account_access(principal, str(c.account_id))
         c.approval_status = "APPROVED_FOR_LAUNCH"
         return {"ok": True, "id": creative_id}
+
+
+@router.post("/creatives/{creative_id}/reject")
+def reject_creative(creative_id: str, principal: Principal = Depends(current_principal)) -> dict:
+    """Owner rejects a creative — it won't launch. Regenerate the batch to get fresh ones."""
+    with tenant_session(principal.tenant_id) as s:
+        c = s.get(Creative, creative_id)
+        if c is None:
+            return {"ok": False}
+        require_account_access(principal, str(c.account_id))
+        c.approval_status = "REJECTED"
+        return {"ok": True, "id": creative_id}
+
+
+class BriefPatch(BaseModel):
+    offer: str | None = None
+    audience: list[str] | None = None
+    usp: list[str] | None = None
+    objections: list[str] | None = None
+    tone: str | None = None
+
+
+@router.patch("/accounts/{account_id}/brief")
+def update_brief(
+    account_id: str, patch: BriefPatch, principal: Principal = Depends(current_principal)
+) -> dict:
+    """Owner corrects Saathi's understanding before ads are written (a wrong brief poisons
+    every downstream creative)."""
+    require_account_access(principal, account_id)
+    with tenant_session(principal.tenant_id) as s:
+        b = s.scalar(
+            select(BusinessBrief).where(BusinessBrief.account_id == account_id)
+            .order_by(BusinessBrief.version.desc())
+        )
+        if b is None:
+            raise NotFoundError("No brief yet")
+        if patch.offer is not None:
+            b.offer = patch.offer
+        if patch.audience is not None:
+            b.audience = patch.audience
+        if patch.usp is not None:
+            b.usp = patch.usp
+        if patch.objections is not None:
+            b.objections = patch.objections
+        if patch.tone is not None:
+            b.tone = patch.tone
+        return {"id": str(b.id), "offer": b.offer, "audience": b.audience, "usp": b.usp,
+                "objections": b.objections, "tone": b.tone, "version": b.version}
+
+
+class AnglePatch(BaseModel):
+    status: str
+
+
+@router.patch("/angles/{angle_id}")
+def update_angle(
+    angle_id: str, patch: AnglePatch, principal: Principal = Depends(current_principal)
+) -> dict:
+    if patch.status not in {"ACTIVE", "PAUSED", "REJECTED"}:
+        raise ValidationError(f"Invalid angle status: {patch.status}")
+    with tenant_session(principal.tenant_id) as s:
+        a = s.get(Angle, angle_id)
+        if a is None:
+            raise NotFoundError("Angle not found")
+        require_account_access(principal, str(a.account_id))
+        a.status = patch.status
+        return {"id": str(a.id), "status": a.status}
 
 
 @router.post("/accounts/{account_id}/campaigns/launch")

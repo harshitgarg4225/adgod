@@ -191,6 +191,21 @@ export const api = {
     req<CreativeItem[]>(`/accounts/${accountId}/creatives`),
   approveCreative: (creativeId: string) =>
     req<{ ok: boolean }>(`/creatives/${creativeId}/approve`, { method: "POST" }),
+  rejectCreative: (creativeId: string) =>
+    req<{ ok: boolean }>(`/creatives/${creativeId}/reject`, { method: "POST" }),
+  updateBrief: (
+    accountId: string,
+    patch: { offer?: string; audience?: string[]; usp?: string[]; tone?: string }
+  ) =>
+    req<Brief>(`/accounts/${accountId}/brief`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  updateAngle: (angleId: string, status: string) =>
+    req<{ id: string; status: string }>(`/angles/${angleId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
   launch: (accountId: string) =>
     req<{ campaign_ids: string[] }>(`/accounts/${accountId}/campaigns/launch`, {
       method: "POST",
