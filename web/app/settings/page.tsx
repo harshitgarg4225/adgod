@@ -9,6 +9,7 @@ import {
   BottomNav,
   Button,
   Card,
+  ConfirmDialog,
   ErrorState,
   Icon,
   Input,
@@ -34,6 +35,7 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Editable form state
   const [name, setName] = useState("");
@@ -263,7 +265,12 @@ export default function SettingsPage() {
             {t("settings.help", "Help & support")}
           </a>
           <button
-            onClick={() => {
+            onClick={async () => {
+              try {
+                await api.logout();
+              } catch {
+                /* revoke best-effort */
+              }
               clearSession();
               router.replace("/login");
             }}
@@ -271,6 +278,37 @@ export default function SettingsPage() {
           >
             <Icon name="logout" />
             {t("settings.logout", "Log out")}
+          </button>
+        </Card>
+
+        {/* Data & privacy (DPDP) */}
+        <Card className="divide-y divide-slate-100">
+          <button
+            onClick={async () => {
+              try {
+                const data = await api.exportMyData();
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "salmor-my-data.json";
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (e: any) {
+                toast.show(e.userMessage || t("common.somethingWrong", "Could not export."), "error");
+              }
+            }}
+            className="flex w-full items-center gap-3 py-3 text-ink-soft"
+          >
+            <Icon name="shield" className="text-brand" />
+            {t("settings.exportData", "Download my data")}
+          </button>
+          <button
+            onClick={() => setDeleteOpen(true)}
+            className="flex w-full items-center gap-3 py-3 text-hot"
+          >
+            <Icon name="x" />
+            {t("settings.deleteAccount", "Delete my account")}
           </button>
         </Card>
       </div>
@@ -296,6 +334,24 @@ export default function SettingsPage() {
           ))}
         </div>
       </Sheet>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title={t("settings.deleteTitle", "Delete your account?")}
+        body={t("settings.deleteBody", "This pauses your ads and removes your data. This can't be undone.")}
+        confirmLabel={t("settings.deleteConfirm", "Delete account")}
+        tone="danger"
+        onConfirm={async () => {
+          try {
+            await api.deleteMyAccount();
+            clearSession();
+            router.replace("/login");
+          } catch (e: any) {
+            toast.show(e.userMessage || t("common.somethingWrong", "Could not delete."), "error");
+          }
+        }}
+        onClose={() => setDeleteOpen(false)}
+      />
 
       <BottomNav active="/settings" />
     </main>

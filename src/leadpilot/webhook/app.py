@@ -166,11 +166,20 @@ async def razorpay_webhook(request: Request) -> JSONResponse:
     elif settings.requires_secure_webhooks:
         return JSONResponse({"error": "unconfigured"}, status_code=403)
 
+    # Replay protection: dedupe on Razorpay's event id so a captured, validly-signed body
+    # can't be replayed to re-flip subscription state.
+    event_uid = request.headers.get("X-Razorpay-Event-Id")
     payload = json.loads(body or b"{}")
     event = payload.get("event")
     sub = payload.get("payload", {}).get("subscription", {}).get("entity", {})
     sub_id = sub.get("id")
     if event and sub_id:
+        dedupe_key = event_uid or f"{event}:{sub_id}:{sub.get('current_end', '')}"
+        if record_inbound_event(
+            provider="razorpay", external_id=dedupe_key,
+            tenant_id=None, account_id=None, payload=payload,
+        ) is None:
+            return JSONResponse({"status": "duplicate"}, status_code=200)
         end = sub.get("current_end")
         period_end = datetime.fromtimestamp(end, UTC) if end else None
         apply_razorpay_event(event=event, subscription_id=sub_id, period_end=period_end)

@@ -125,6 +125,17 @@ def connect_whatsapp(body: WhatsAppConnectIn, principal: Principal = Depends(cur
             if existing is None:
                 s.add(WaRoute(phone_number_id=body.phone_number_id,
                               tenant_id=principal.tenant_id, account_id=principal.account_id))
+            elif str(existing.tenant_id) == str(principal.tenant_id):
+                # Recycled/reassigned within the same tenant — safe to re-point.
+                existing.account_id = principal.account_id
+            else:
+                # A phone_number_id already owned by ANOTHER tenant must not be silently
+                # hijacked (it would route their leads to us). Fail closed; ops must
+                # verify + release it first.
+                raise ValidationError(
+                    "This WhatsApp number is already registered to another account. "
+                    "Contact support to transfer it."
+                )
     return {"mode": mode, "closer_enabled": mode != WhatsAppMode.APP_DESTINATION.value}
 
 

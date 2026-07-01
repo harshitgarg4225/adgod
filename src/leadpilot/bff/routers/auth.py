@@ -11,9 +11,10 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
+from leadpilot.bff.deps import Principal, current_principal
 from leadpilot.bff.schemas import (
     AccessOut,
     OtpRequest,
@@ -29,7 +30,7 @@ from leadpilot.common.logging import get_logger
 from leadpilot.common.ratelimit import enforce
 from leadpilot.core.db import platform_session, tenant_session
 from leadpilot.core.enums import AccountPhase, TenantType, UserRole
-from leadpilot.core.models import Account, AuthOtp, Tenant, User
+from leadpilot.core.models import Account, AuthOtp, Lead, Tenant, User
 from leadpilot.integrations.otp import get_otp_provider
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -38,8 +39,10 @@ log = get_logger("auth")
 OTP_TTL_MIN = 5
 
 
-def _hash(code: str) -> str:
-    return hashlib.sha256(f"{settings.jwt_secret}:{code}".encode()).hexdigest()
+def _hash(code: str, salt: str) -> str:
+    # Per-row random salt defeats precomputation across the whole table; the JWT secret is
+    # kept as an extra pepper (defence in depth).
+    return hashlib.sha256(f"{salt}:{settings.jwt_secret}:{code}".encode()).hexdigest()
 
 
 @router.post("/otp/request", status_code=202)
@@ -50,8 +53,9 @@ def otp_request(req: OtpRequest, request: Request) -> dict:
     if request.client:
         enforce("otp_request_ip", request.client.host, limit=20, window_s=600, fail_closed=True)
     code = f"{secrets.randbelow(1_000_000):06d}"
+    salt = secrets.token_hex(16)
     with platform_session() as s:
-        s.add(AuthOtp(phone=req.phone, code_hash=_hash(code),
+        s.add(AuthOtp(phone=req.phone, code_hash=_hash(code, salt), salt=salt,
                       expires_at=datetime.now(UTC) + timedelta(minutes=OTP_TTL_MIN)))
     get_otp_provider().send(phone=req.phone, code=code)
     log.info("otp_requested", phone=req.phone)
@@ -76,8 +80,11 @@ def _signup(phone: str) -> User:
     with platform_session() as s:
         s.add(Tenant(id=tenant_id, name="Direct Tenant", type=TenantType.DIRECT.value,
                      status="ACTIVE", settings={}))
+        # consent_at records DPDP consent captured at signup (the login screen shows the
+        # T&C/privacy notice before the OTP step).
         s.add(User(id=user_id, tenant_id=tenant_id, account_id=account_id, phone=phone,
-                   role=UserRole.OWNER.value, name=None, locale="hi"))
+                   role=UserRole.OWNER.value, name=None, locale="hi",
+                   consent_at=datetime.now(UTC)))
     with tenant_session(tenant_id) as s:
         s.add(Account(id=account_id, tenant_id=tenant_id, business_name="",
                       category="general", phase=AccountPhase.SIGNED_UP.value,
@@ -99,7 +106,7 @@ def otp_verify(req: OtpVerify) -> TokenOut:
                                   AuthOtp.expires_at > now)
             .order_by(AuthOtp.created_at.desc())
         )
-        if otp is None or otp.code_hash != _hash(req.code):
+        if otp is None or otp.code_hash != _hash(req.code, otp.salt or ""):
             raise AuthError("Invalid or expired code", user_message_key="error.validation")
         otp.consumed_at = now
 
@@ -110,6 +117,7 @@ def otp_verify(req: OtpVerify) -> TokenOut:
     access = issue_access_token(
         user_id=str(user.id), tenant_id=str(user.tenant_id),
         account_id=str(user.account_id) if user.account_id else None, role=user.role,
+        token_version=user.token_version,
     )
     refresh = issue_refresh_token(user_id=str(user.id), tenant_id=str(user.tenant_id))
     return TokenOut(
@@ -129,10 +137,68 @@ def refresh_token(req: RefreshRequest) -> AccessOut:
         raise AuthError("Wrong token type")
     with platform_session() as s:
         user = s.get(User, claims["sub"])
-    if user is None:
+    if user is None or user.deleted_at is not None:
         raise AuthError("Unknown user")
     access = issue_access_token(
         user_id=str(user.id), tenant_id=str(user.tenant_id),
         account_id=str(user.account_id) if user.account_id else None, role=user.role,
+        token_version=user.token_version,
     )
     return AccessOut(access=access)
+
+
+@router.post("/logout")
+def logout(principal: Principal = Depends(current_principal)) -> dict:
+    """Revoke every outstanding token for this user by bumping token_version — the
+    re-bind check in current_principal then rejects the old access/refresh tokens."""
+    with platform_session() as s:
+        user = s.get(User, principal.user_id)
+        if user is not None:
+            user.token_version = (user.token_version or 0) + 1
+    return {"ok": True}
+
+
+@router.get("/me/export")
+def export_my_data(principal: Principal = Depends(current_principal)) -> dict:
+    """DPDP data-subject access: export the account's own data (self-service)."""
+    with tenant_session(principal.tenant_id) as s:
+        user = s.get(User, principal.user_id)
+        account = s.get(Account, principal.account_id) if principal.account_id else None
+        leads = []
+        if principal.account_id:
+            leads = [
+                {"name": leadrow.name, "wa_phone": leadrow.wa_phone, "status": leadrow.status,
+                 "score": leadrow.score, "intent": leadrow.intent_summary,
+                 "created_at": leadrow.created_at.isoformat()}
+                for leadrow in s.scalars(
+                    select(Lead).where(Lead.account_id == principal.account_id)
+                ).all()
+            ]
+        return {
+            "user": {"phone": user.phone if user else None, "name": user.name if user else None,
+                     "locale": user.locale if user else None,
+                     "consent_at": user.consent_at.isoformat()
+                     if user and user.consent_at else None},
+            "account": {"business_name": account.business_name, "category": account.category}
+            if account else None,
+            "leads": leads,
+        }
+
+
+@router.delete("/me")
+def delete_my_account(principal: Principal = Depends(current_principal)) -> dict:
+    """DPDP erasure: soft-delete the owner + account and revoke sessions. A retention sweep
+    hard-purges the PII after the grace window."""
+    now = datetime.now(UTC)
+    with platform_session() as s:
+        user = s.get(User, principal.user_id)
+        if user is not None:
+            user.deleted_at = now
+            user.token_version = (user.token_version or 0) + 1
+    if principal.account_id:
+        with tenant_session(principal.tenant_id) as s:
+            account = s.get(Account, principal.account_id)
+            if account is not None:
+                account.deleted_at = now
+                account.phase = AccountPhase.CHURNED.value
+    return {"ok": True, "deleted_at": now.isoformat()}

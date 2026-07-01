@@ -19,10 +19,15 @@ def hash_request(body: Any) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def lookup(session: Session, key: str) -> dict | None:
+def lookup(session: Session, key: str, *, tenant_id: str) -> dict | None:
+    """Tenant-scoped lookup — a key is only ever resolved within its own tenant, so it can
+    neither be used as a cross-tenant DoS nor leak another tenant's stored response."""
     row = session.execute(
-        text("SELECT request_hash, response_code, response_body FROM idempotency_keys WHERE key=:k"),
-        {"k": key},
+        text(
+            "SELECT request_hash, response_code, response_body FROM idempotency_keys "
+            "WHERE key=:k AND tenant_id=:t"
+        ),
+        {"k": key, "t": tenant_id},
     ).mappings().first()
     return dict(row) if row else None
 
@@ -34,14 +39,14 @@ def store(
     request_hash: str,
     response_code: int,
     response_body: dict,
-    tenant_id: str | None = None,
+    tenant_id: str,
 ) -> None:
     session.execute(
         text(
             """
             INSERT INTO idempotency_keys (tenant_id, key, request_hash, response_code, response_body)
             VALUES (:t, :k, :h, :c, CAST(:b AS jsonb))
-            ON CONFLICT (key) DO NOTHING
+            ON CONFLICT (tenant_id, key) DO NOTHING
             """
         ),
         {

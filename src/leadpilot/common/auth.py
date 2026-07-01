@@ -15,12 +15,15 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def issue_access_token(*, user_id: str, tenant_id: str, account_id: str | None, role: str) -> str:
+def issue_access_token(
+    *, user_id: str, tenant_id: str, account_id: str | None, role: str, token_version: int = 0
+) -> str:
     payload = {
         "sub": user_id,
         "tid": tenant_id,
         "aid": account_id,
         "role": role,
+        "tv": token_version,  # must match users.token_version or the token is revoked
         "type": "access",
         "iat": _now(),
         "exp": _now() + timedelta(minutes=settings.jwt_access_ttl_min),

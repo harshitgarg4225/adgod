@@ -8,6 +8,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from leadpilot.common.auth import decode_token
 from leadpilot.common.errors import AuthError, ForbiddenError
+from leadpilot.core.db import platform_session
+from leadpilot.core.models import User
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -32,7 +34,18 @@ def current_principal(
         raise AuthError("Invalid or expired token") from exc
     if claims.get("type") != "access":
         raise AuthError("Wrong token type")
-    request.state.locale = claims.get("locale", "en")
+    # Re-bind the token to the live user row every request: this revokes tokens after
+    # logout (token_version bump) or account deletion, and stops a forged/replayed token
+    # from asserting a tenant the user isn't actually in.
+    with platform_session() as s:
+        user = s.get(User, claims["sub"])
+    if user is None or user.deleted_at is not None:
+        raise AuthError("Account no longer active")
+    if str(user.tenant_id) != claims.get("tid"):
+        raise AuthError("Token tenant mismatch")
+    if int(claims.get("tv", 0)) != int(user.token_version):
+        raise AuthError("Session expired, please log in again")
+    request.state.locale = user.locale or "en"
     return Principal(
         user_id=claims["sub"],
         tenant_id=claims["tid"],

@@ -90,6 +90,10 @@ class User(Base, TimestampMixin):
     name: Mapped[str | None] = mapped_column(String(200))
     locale: Mapped[str] = mapped_column(String(8), default="hi")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Bumped on logout / password-equivalent change to revoke all outstanding JWTs.
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # DPDP: timestamp of the consent captured at signup.
+    consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class BusinessProfile(Base, TimestampMixin):
@@ -403,7 +407,9 @@ class IdempotencyKey(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    __table_args__ = (UniqueConstraint("key", name="uq_idempotency_key"),)
+    # Tenant-scoped uniqueness: a key chosen by one tenant can neither collide with nor
+    # leak another tenant's stored response.
+    __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_idempotency_tenant_key"),)
 
 
 class Notification(Base, TimestampMixin):
@@ -644,6 +650,7 @@ class AuthOtp(Base):
     id: Mapped[uuid.UUID] = _uuid_pk()
     phone: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    salt: Mapped[str | None] = mapped_column(String(64))  # per-code random salt
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(

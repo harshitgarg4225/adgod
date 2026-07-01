@@ -124,10 +124,15 @@ export default function Login() {
         )}
       </div>
 
-      {/* Trust */}
-      <div className="flex items-center justify-center gap-2 text-xs text-ink-faint">
-        <Icon name="shield" className="h-4 w-4" />
-        {t("login.trust", "Official Meta partner • Payments secured by Razorpay")}
+      {/* Consent + Trust */}
+      <div className="space-y-2 text-center">
+        <p className="text-2xs text-ink-faint">
+          {t("login.consent", "By continuing you agree to our Terms & Privacy Policy.")}
+        </p>
+        <div className="flex items-center justify-center gap-2 text-xs text-ink-faint">
+          <Icon name="shield" className="h-4 w-4" />
+          {t("login.trust", "Official Meta partner • Payments secured by Razorpay")}
+        </div>
       </div>
     </main>
   );

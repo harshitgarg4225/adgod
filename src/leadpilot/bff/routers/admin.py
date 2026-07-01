@@ -91,7 +91,8 @@ def impersonate(
                entity_id=account_id, tenant_id=owner.tenant_id,
                ip=request.client.host if request.client else None)
         token = issue_access_token(user_id=str(owner.id), tenant_id=str(owner.tenant_id),
-                                   account_id=str(owner.account_id), role="OWNER")
+                                   account_id=str(owner.account_id), role="OWNER",
+                                   token_version=owner.token_version)
     return {"access": token, "impersonating": account_id}
 
 

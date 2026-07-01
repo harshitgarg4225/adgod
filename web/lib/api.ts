@@ -136,6 +136,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ phone, code }),
     }),
+  logout: () => req<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+  exportMyData: () => req<unknown>("/auth/me/export"),
+  deleteMyAccount: () => req<{ ok: boolean }>("/auth/me", { method: "DELETE" }),
   home: (accountId: string) => req<Home>(`/accounts/${accountId}/home`),
   leads: (accountId: string, opts?: { q?: string; status?: string; score?: string }) => {
     const p = new URLSearchParams();

@@ -14,9 +14,9 @@ from sqlalchemy import func, select
 from leadpilot.bff.deps import Principal, current_principal, require_role
 from leadpilot.common.auth import issue_access_token
 from leadpilot.common.errors import NotFoundError
-from leadpilot.core.db import tenant_session
+from leadpilot.core.db import platform_session, tenant_session
 from leadpilot.core.enums import AccountPhase
-from leadpilot.core.models import Account, AdInsight, BusinessProfile, Lead, Subscription
+from leadpilot.core.models import Account, AdInsight, BusinessProfile, Lead, Subscription, User
 from leadpilot.core.money import format_paise
 
 router = APIRouter(prefix="/partner", tags=["partner"])
@@ -130,11 +130,17 @@ def open_sub_account(
         a = s.get(Account, account_id)
         if a is None:
             raise NotFoundError("Client not found")
+    # The token's subject stays the partner user (audited), so re-bind it to their live
+    # token_version.
+    with platform_session() as s:
+        actor = s.get(User, principal.user_id)
+        tv = actor.token_version if actor else 0
     token = issue_access_token(
         user_id=principal.user_id,
         tenant_id=principal.tenant_id,
         account_id=account_id,
         role="OWNER",  # act as the client owner, but only for this one account
+        token_version=tv,
     )
     return {"access": token, "account_id": account_id, "business_name": a.business_name}
 
