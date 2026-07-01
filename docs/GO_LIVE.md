@@ -68,6 +68,12 @@ Built and tested (just supply the secret / flip the flag):
 - **Token encryption at rest** (Meta system-user tokens, Fernet).
 - **Health/readiness** (`/health`, `/ready` check DB+Redis) for Railway probes.
 - **Sentry** — set `SENTRY_DSN` and `pip install sentry-sdk` (optional, auto-detected).
+- **Deploy hardening (built):** bare `postgresql://` auto-uses the psycopg driver;
+  `tenant_session` fails closed in prod without `APP_TENANT_DB_ROLE` (RLS never silently
+  off); Celery runs the same secret guard at boot and resets its DB pool per prefork child;
+  behind a proxy set `TRUST_PROXY=true` so per-IP rate limits/audit see real client IPs;
+  size the pool via `DB_POOL_SIZE`/`DB_MAX_OVERFLOW` and front Postgres with PgBouncer
+  (`DATABASE_URL_POOLED`) so replicas don't exhaust `max_connections`.
 
 Still recommended follow-ups: enable PgBouncer; raise `closer-worker` warm replicas;
 move owner-initiated pipeline triggers in `bff/routers/agents.py` to enqueue at scale;
