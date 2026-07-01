@@ -95,6 +95,17 @@ export interface SettingsPatch {
   autopilot_level: string;
 }
 
+export interface Booking {
+  id: string;
+  lead_id: string;
+  lead_name: string | null;
+  lead_phone: string | null;
+  slot_start: string | null;
+  slot_end: string | null;
+  status: string;
+  calendar_ref: string | null;
+}
+
 export interface Notification {
   id: string;
   kind: string;

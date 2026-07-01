@@ -64,7 +64,18 @@ export default function LeadsInbox() {
   return (
     <main className="min-h-[100dvh] pb-28">
       <OfflineBanner />
-      <TopBar title={t("nav.leads", "Leads")} />
+      <TopBar
+        title={t("nav.leads", "Leads")}
+        right={
+          <Link
+            href="/bookings"
+            aria-label={t("bookings.title", "Bookings")}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-slate-100"
+          >
+            <Icon name="clock" />
+          </Link>
+        }
+      />
 
       {/* Search */}
       <div className="px-4 pt-3">

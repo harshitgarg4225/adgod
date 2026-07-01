@@ -31,6 +31,7 @@ from leadpilot.core.enums import (
 )
 from leadpilot.core.models import (
     Account,
+    Booking,
     BusinessProfile,
     Conversation,
     Lead,
@@ -196,6 +197,12 @@ class Orchestrator:
         conversation.last_outbound_at = _now()
         self._apply_captured(lead, output)
 
+        # Autonomous booking: when the Closer moves the chat into BOOK, record a PROPOSED
+        # booking so the appointment surfaces in the owner's calendar surface. Idempotent —
+        # one open booking per lead.
+        if output.next_state == ConversationState.BOOK:
+            self._ensure_booking(session, tenant_id, account_id, lead)
+
         if lead.status == LeadStatus.NEW.value:
             lead.status = LeadStatus.ENGAGED.value
 
@@ -315,6 +322,14 @@ class Orchestrator:
                 title=title, body=body, ref_id=ref_id,
             )
         )
+
+    @staticmethod
+    def _ensure_booking(session: Session, tenant_id: UUID, account_id: UUID, lead: Lead) -> None:
+        existing = session.scalar(
+            select(Booking).where(Booking.lead_id == lead.id, Booking.status != "CANCELLED")
+        )
+        if existing is None:
+            session.add(Booking(tenant_id=tenant_id, account_id=account_id, lead_id=lead.id))
 
 
 _orchestrator: Orchestrator | None = None

@@ -14,6 +14,7 @@ from leadpilot.bff.routers import (
     agents,
     auth,
     billing,
+    bookings,
     leads,
     onboarding,
     partner,
@@ -74,6 +75,7 @@ API = "/api/v1"
 app.include_router(auth.router, prefix=API)
 app.include_router(onboarding.router, prefix=API)
 app.include_router(leads.router, prefix=API)
+app.include_router(bookings.router, prefix=API)
 app.include_router(settings_router.router, prefix=API)
 app.include_router(agents.router, prefix=API)
 app.include_router(billing.router, prefix=API)

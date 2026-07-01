@@ -12,8 +12,10 @@ import {
   EmptyState,
   ErrorState,
   Icon,
+  Input,
   Loading,
   ScoreBadge,
+  Sheet,
   TopBar,
   useToast,
 } from "@/components/ui";
@@ -26,6 +28,8 @@ export default function LeadPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
+  const [bookOpen, setBookOpen] = useState(false);
+  const [slot, setSlot] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -56,6 +60,20 @@ export default function LeadPage() {
     }
   }
 
+  async function book() {
+    setBusy(true);
+    try {
+      await api.bookLead(params.id, slot ? { slot_start: new Date(slot).toISOString() } : {});
+      setBookOpen(false);
+      toast.show(t("leads.booked", "Appointment booked! 🗓️"));
+      setLead(await api.lead(params.id));
+    } catch (e: any) {
+      toast.show(e.userMessage || t("common.somethingWrong", "Could not book."), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (error && !lead) return <ErrorState message={error} onRetry={load} />;
   if (!lead) return <Loading label={t("common.loading", "Loading…")} />;
 
@@ -66,6 +84,21 @@ export default function LeadPage() {
     <main className="min-h-[100dvh] pb-44">
       <Celebration show={celebrate} message={t("leads.wonCelebrate", "Sale won! 🎉 Shabaash!")} />
       <TopBar title={lead.name || t("leads.lead", "Lead")} back="/leads" />
+
+      <Sheet open={bookOpen} onClose={() => setBookOpen(false)} title={t("leads.bookAppt", "Book appointment")}>
+        <p className="mb-3 text-sm text-ink-muted">
+          {t("leads.bookHint", "Pick a time to meet or call this lead. They'll move to your Bookings.")}
+        </p>
+        <Input
+          label={t("leads.slot", "When")}
+          type="datetime-local"
+          value={slot}
+          onChange={(e) => setSlot(e.target.value)}
+        />
+        <Button fullWidth className="mt-4" loading={busy} onClick={book}>
+          {t("leads.confirmBooking", "Confirm booking")}
+        </Button>
+      </Sheet>
 
       <section className="space-y-4 p-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -80,6 +113,12 @@ export default function LeadPage() {
           <Field label={t("leads.budget", "Budget")} value={lead.budget_signal} />
           <Field label={t("leads.timeline", "Timeline")} value={lead.timeline_signal} />
         </dl>
+
+        <Button variant="secondary" fullWidth leftIcon="clock" onClick={() => setBookOpen(true)}>
+          {lead.status === "BOOKED"
+            ? t("leads.rebook", "Reschedule appointment")
+            : t("leads.bookAppt", "Book appointment")}
+        </Button>
       </section>
 
       <section className="px-4">

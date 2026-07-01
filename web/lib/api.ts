@@ -4,6 +4,7 @@ import type {
   AdminAccount,
   AnomalyEvent,
   Angle,
+  Booking,
   Brief,
   BusinessInput,
   CampaignItem,
@@ -132,6 +133,16 @@ export const api = {
     req<{ phase: string; paused: boolean }>(`/accounts/${accountId}/pause`, { method: "POST" }),
   resumeAccount: (accountId: string) =>
     req<{ phase: string; paused: boolean }>(`/accounts/${accountId}/resume`, { method: "POST" }),
+
+  // Bookings
+  bookings: (accountId: string) => req<Booking[]>(`/accounts/${accountId}/bookings`),
+  bookLead: (leadId: string, body: { slot_start?: string; slot_end?: string }) =>
+    req<Booking>(`/leads/${leadId}/book`, { method: "POST", body: JSON.stringify(body) }),
+  updateBooking: (bookingId: string, status: string) =>
+    req<Booking>(`/bookings/${bookingId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
 
   // Onboarding
   setBusiness: (body: BusinessInput) =>
