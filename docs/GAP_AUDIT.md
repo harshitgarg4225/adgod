@@ -141,10 +141,41 @@ k-anonymity; mock adapters behind real interfaces.
 
 ---
 
-## 7. Verification snapshot (this pass)
-- Backend: `ruff` clean; **64** tests passing (incl. self-serve signup, security
-  hardening, trial/retention sweeps); migrations apply head-from-scratch.
-- Web: production build green, **17** routes.
+## 7. Backlog closed (second pass)
+The ⬜ items above were then built end-to-end:
 
-The ⬜ items are the remaining backlog to a fully ready-to-go product; they are scoped
-above with the concrete fix so they can be picked up directly.
+- **1.7 / 1.9 / 1.10** — owner in-app WhatsApp reply; hourly re-engagement of silent
+  (NO_RESPONSE) leads via approved templates; the 24h window now branches free-form vs.
+  template (effect handler + `saathi/outbound.py`; seeded templates).
+- **1.8** — booking flow (bookings router, orchestrator BOOK transition, `/bookings`
+  screen, lead "Book appointment").
+- **1.11** — partner client drill-in + 15% commission + "open as client" scoped token +
+  acting-as banner.
+- **1.13 / 1.14 / 1.15** — budget/timeline captured separately; per-creative
+  approve/reject; editable brief + angle on/off toggles.
+- **1.16 / 1.17** — ad-wallet screen + top-ups; monthly spend cap enforced at launch;
+  GSTIN/legal-name/address capture; printable GST invoice document.
+- **2.3** — Meta Embedded Signup start endpoint + "Connect with Facebook" button.
+- **4.11–4.18** — JWT re-bind + token-version revocation (logout/delete); DPDP consent +
+  data export + erasure; per-row OTP salt; tenant-scoped idempotency keys; Razorpay
+  webhook replay dedupe; wa_route hijack refused; pinned `requirements.lock`.
+- **5.8 / 5.12 / 5.13 / 5.14 / 5.15** — Retry-After-aware retry + circuit breaker;
+  `ON DELETE CASCADE` FKs (migration 0009, `NOT VALID`); webhook handlers offloaded to a
+  threadpool; streaming CSV export; degraded-Closer canned-reply fallback.
+
+### Deliberately deferred (rationale, not omission)
+- **4.12 HttpOnly cookies** — a full cookie+CSRF migration of the auth flow needs product
+  sign-off; the risk it addresses (token theft/replay) is now mitigated by per-request JWT
+  re-bind + token-version revocation and a strict CSP.
+- **5.9 explicit-DDL migrations / 5.10 `CONCURRENTLY` / 5.11 partitioning** — operational
+  hardening best applied against real production volume; the create_all-from-model
+  approach and plain indexes are documented tradeoffs, fine at current scale.
+- **1.12 daily report to WhatsApp** — delivered via the in-app notification centre; a
+  business→owner template send needs an owner-side conversation record (small follow-up).
+- **3.12 full WCAG pass / 3.14 framed desktop** — foundational a11y (focus rings, aria-live,
+  labelled icons, rem type) is in; a formal WCAG audit + desktop treatment remain polish.
+
+## 8. Verification snapshot (final)
+- Backend: `ruff` clean; **96** tests passing; migrations 0001→0009 apply
+  head-from-scratch.
+- Web: production build green, **19** routes.
