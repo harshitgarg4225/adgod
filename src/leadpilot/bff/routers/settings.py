@@ -3,16 +3,18 @@ pause/resume kill-switch (PRD §6.7, §12 — trust). Everything here is owner-f
 account-scoped; RLS confines writes to the owner's own tenant."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from leadpilot.bff.deps import Principal, current_principal, require_account_access
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.common.i18n import SUPPORTED_LOCALES
 from leadpilot.core.db import tenant_session
 from leadpilot.core.enums import AccountPhase, AutopilotLevel
-from leadpilot.core.models import Account, BusinessProfile, Subscription
+from leadpilot.core.models import Account, AdInsight, BusinessProfile, Subscription
 from leadpilot.core.money import format_paise
 
 router = APIRouter(tags=["settings"])
@@ -36,6 +38,12 @@ class SettingsOut(BaseModel):
     paused: bool
     subscription_tier: str | None
     subscription_status: str | None
+    gstin: str | None
+    legal_name: str | None
+    billing_address: str | None
+    monthly_cap_paise: int | None
+    monthly_spend_paise: int
+    monthly_spend_display: str
 
 
 class SettingsPatch(BaseModel):
@@ -46,6 +54,22 @@ class SettingsPatch(BaseModel):
     daily_budget_paise: int | None = Field(default=None, ge=10000)  # ≥ ₹100/day
     default_language: str | None = None
     autopilot_level: str | None = None
+    gstin: str | None = Field(default=None, max_length=20)
+    legal_name: str | None = Field(default=None, max_length=200)
+    billing_address: str | None = Field(default=None, max_length=1000)
+
+
+def month_to_date_spend(session, account_id: str) -> int:
+    """Sum of account-level ad spend since the 1st of the current month (UTC)."""
+    month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    total = session.execute(
+        select(func.coalesce(func.sum(AdInsight.spend_paise), 0)).where(
+            AdInsight.account_id == account_id,
+            AdInsight.level == "ACCOUNT",
+            AdInsight.date >= month_start,
+        )
+    ).scalar_one()
+    return int(total or 0)
 
 
 def _load(session, account_id: str) -> tuple[Account, BusinessProfile | None, Subscription | None]:
@@ -65,6 +89,8 @@ def get_settings(account_id: str, principal: Principal = Depends(current_princip
     with tenant_session(principal.tenant_id) as s:
         account, profile, sub = _load(s, account_id)
         budget = profile.daily_budget_paise if profile else 0
+        cap = profile.monthly_cap_paise if profile else None
+        mtd = month_to_date_spend(s, account_id)
         return SettingsOut(
             business_name=account.business_name,
             category=account.category,
@@ -79,6 +105,12 @@ def get_settings(account_id: str, principal: Principal = Depends(current_princip
             paused=account.phase == AccountPhase.PAUSED.value,
             subscription_tier=sub.tier if sub else None,
             subscription_status=sub.status if sub else None,
+            gstin=account.gstin,
+            legal_name=account.legal_name,
+            billing_address=account.billing_address,
+            monthly_cap_paise=cap,
+            monthly_spend_paise=mtd,
+            monthly_spend_display=format_paise(mtd),
         )
 
 
@@ -99,6 +131,12 @@ def update_settings(
             account.default_language = patch.default_language
         if patch.autopilot_level is not None:
             account.autopilot_level = patch.autopilot_level
+        if patch.gstin is not None:
+            account.gstin = patch.gstin
+        if patch.legal_name is not None:
+            account.legal_name = patch.legal_name
+        if patch.billing_address is not None:
+            account.billing_address = patch.billing_address
         if profile is None and (patch.offer or patch.service_area_city or patch.daily_budget_paise):
             profile = BusinessProfile(tenant_id=account.tenant_id, account_id=account.id)
             s.add(profile)

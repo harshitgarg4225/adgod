@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from leadpilot.bff.deps import Principal, current_principal, require_account_access
+from leadpilot.bff.routers.settings import month_to_date_spend
 from leadpilot.common.config import settings
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.core.db import tenant_session
@@ -19,11 +20,13 @@ from leadpilot.core.models import (
     Angle,
     Approval,
     BusinessBrief,
+    BusinessProfile,
     Campaign,
     Creative,
     OptimizationDecision,
 )
 from leadpilot.saathi import pipeline
+from leadpilot.saathi.guardrails.spend import check_monthly_cap
 from leadpilot.worker.dispatch import enqueue_pipeline
 
 router = APIRouter(tags=["saathi"])
@@ -182,6 +185,20 @@ def update_angle(
 @router.post("/accounts/{account_id}/campaigns/launch")
 def launch(account_id: str, principal: Principal = Depends(current_principal)) -> dict:
     require_account_access(principal, account_id)
+    # Enforce the monthly spend cap before putting anything live (money safety).
+    with tenant_session(principal.tenant_id) as s:
+        profile = s.scalar(
+            select(BusinessProfile).where(BusinessProfile.account_id == account_id)
+        )
+        cap = profile.monthly_cap_paise if profile else None
+        capped = check_monthly_cap(
+            month_to_date_paise=month_to_date_spend(s, account_id), monthly_cap_paise=cap
+        )
+        if not capped.ok:
+            raise ValidationError(
+                "Monthly spend cap reached — raise it in Settings to launch more ads.",
+                user_message_key="error.monthly_cap",
+            )
     if (q := _maybe_enqueue("launch", principal.tenant_id, account_id)):
         return q
     with tenant_session(principal.tenant_id) as s:

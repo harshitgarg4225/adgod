@@ -40,6 +40,9 @@ export default function SettingsPage() {
   const [offer, setOffer] = useState("");
   const [city, setCity] = useState("");
   const [budget, setBudget] = useState(500);
+  const [gstin, setGstin] = useState("");
+  const [legalName, setLegalName] = useState("");
+  const [billingAddress, setBillingAddress] = useState("");
 
   const acc = getUser()?.account_id;
 
@@ -56,6 +59,9 @@ export default function SettingsPage() {
       setOffer(data.offer || "");
       setCity(data.service_area_city || "");
       setBudget(Math.round(data.daily_budget_paise / 100) || 500);
+      setGstin(data.gstin || "");
+      setLegalName(data.legal_name || "");
+      setBillingAddress(data.billing_address || "");
     } catch (e: any) {
       setError(e.userMessage || t("common.somethingWrong", "Could not load settings."));
     }
@@ -162,6 +168,37 @@ export default function SettingsPage() {
             }
           >
             {t("settings.updateBudget", "Update budget")}
+          </Button>
+          <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm">
+            <span className="text-ink-muted">{t("settings.thisMonth", "Spent this month")}</span>
+            <span className="font-semibold">
+              {s.monthly_spend_display}
+              {s.monthly_cap_paise
+                ? ` / ${Math.round(s.monthly_cap_paise / 100).toLocaleString("en-IN")}`
+                : ""}
+            </span>
+          </div>
+        </Card>
+
+        {/* Billing details (GST) */}
+        <Card className="space-y-3">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
+            {t("settings.billingDetails", "Billing details (for GST invoices)")}
+          </h2>
+          <Input label="GSTIN" value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="22AAAAA0000A1Z5" />
+          <Input label={t("settings.legalName", "Registered name")} value={legalName} onChange={(e) => setLegalName(e.target.value)} />
+          <Textarea label={t("settings.billingAddr", "Billing address")} rows={2} value={billingAddress} onChange={(e) => setBillingAddress(e.target.value)} />
+          <Button
+            variant="secondary"
+            loading={busy}
+            onClick={() =>
+              save(
+                { gstin, legal_name: legalName, billing_address: billingAddress },
+                t("settings.savedBilling", "Billing details saved.")
+              )
+            }
+          >
+            {t("common.save", "Save")}
           </Button>
         </Card>
 

@@ -13,6 +13,7 @@ import type {
   FeatureFlag,
   Home,
   Insight,
+  Invoice,
   LeadDetail,
   LeadListItem,
   Notification,
@@ -24,6 +25,7 @@ import type {
   SubscriptionInfo,
   Tier,
   TokenResponse,
+  Wallet,
 } from "./types";
 
 const API_BASE =
@@ -228,6 +230,15 @@ export const api = {
       body: JSON.stringify({ tier }),
     }),
   subscription: () => req<SubscriptionInfo>("/billing/subscription"),
+  invoices: () => req<Invoice[]>("/billing/invoices"),
+  invoiceDocumentUrl: (invoiceId: string) =>
+    `${API_BASE}/billing/invoices/${invoiceId}/document`,
+  wallet: () => req<Wallet>("/billing/wallet"),
+  walletTopup: (amount_paise: number) =>
+    req<{ balance_paise: number; balance_display: string }>("/billing/wallet/topup", {
+      method: "POST",
+      body: JSON.stringify({ amount_paise }),
+    }),
 
   // Partner console
   partnerSubAccounts: () => req<PartnerSubAccount[]>("/partner/sub-accounts"),

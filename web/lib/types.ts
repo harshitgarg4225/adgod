@@ -83,6 +83,33 @@ export interface Settings {
   paused: boolean;
   subscription_tier: string | null;
   subscription_status: string | null;
+  gstin: string | null;
+  legal_name: string | null;
+  billing_address: string | null;
+  monthly_cap_paise: number | null;
+  monthly_spend_paise: number;
+  monthly_spend_display: string;
+}
+
+export interface Invoice {
+  id: string;
+  amount_paise: number;
+  gst_paise: number;
+  status: string;
+  pdf_url: string | null;
+  period: string | null;
+}
+
+export interface Wallet {
+  balance_paise: number;
+  balance_display: string;
+  ledger: {
+    entry_type: string;
+    amount_paise: number;
+    balance_paise: number;
+    ref: string | null;
+    created_at: string;
+  }[];
 }
 
 export interface SettingsPatch {
@@ -93,6 +120,9 @@ export interface SettingsPatch {
   daily_budget_paise: number;
   default_language: string;
   autopilot_level: string;
+  gstin: string;
+  legal_name: string;
+  billing_address: string;
 }
 
 export interface Booking {

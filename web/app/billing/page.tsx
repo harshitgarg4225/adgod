@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, getUser } from "@/lib/api";
-import type { SubscriptionInfo, Tier } from "@/lib/types";
+import { api, getToken, getUser } from "@/lib/api";
+import type { Invoice, SubscriptionInfo, Tier } from "@/lib/types";
 import { useT } from "@/lib/i18n";
 import {
   Badge,
@@ -30,6 +31,7 @@ export default function Billing() {
   const toast = useToast();
   const [tiers, setTiers] = useState<Tier[] | null>(null);
   const [sub, setSub] = useState<SubscriptionInfo | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -37,9 +39,14 @@ export default function Billing() {
     if (!getUser()?.account_id) return router.replace("/login");
     setError(null);
     try {
-      const [tt, s] = await Promise.all([api.tiers(), api.subscription()]);
+      const [tt, s, inv] = await Promise.all([
+        api.tiers(),
+        api.subscription(),
+        api.invoices().catch(() => []),
+      ]);
       setTiers(tt);
       setSub(s);
+      setInvoices(inv);
     } catch (e: any) {
       setError(e.userMessage || t("common.somethingWrong", "Could not load billing."));
     }
@@ -48,6 +55,22 @@ export default function Billing() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function openInvoice(id: string) {
+    try {
+      const res = await fetch(api.invoiceDocumentUrl(id), {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const html = await res.text();
+      const w = window.open("", "_blank");
+      if (w) {
+        w.document.write(html);
+        w.document.close();
+      }
+    } catch {
+      toast.show(t("common.somethingWrong", "Could not open invoice."), "error");
+    }
+  }
 
   async function subscribe(tier: string) {
     setBusy(tier);
@@ -144,6 +167,41 @@ export default function Billing() {
             </Card>
           );
         })}
+
+        {/* Wallet + invoices */}
+        <Link href="/wallet" className="block">
+          <Card className="flex items-center justify-between">
+            <span className="flex items-center gap-2 font-semibold">
+              <Icon name="billing" className="h-5 w-5 text-brand" /> {t("billing.wallet", "Ad wallet")}
+            </span>
+            <Icon name="chevronRight" className="text-ink-faint" />
+          </Card>
+        </Link>
+
+        {invoices.length > 0 && (
+          <div>
+            <p className="mb-2 text-sm font-bold uppercase tracking-wide text-ink-muted">
+              {t("billing.invoices", "Invoices")}
+            </p>
+            <ul className="space-y-2">
+              {invoices.map((inv) => (
+                <li key={inv.id}>
+                  <button onClick={() => openInvoice(inv.id)} className="block w-full text-left">
+                    <Card className="flex items-center justify-between !p-3">
+                      <div>
+                        <p className="font-medium">{inv.period || t("billing.invoice", "Invoice")}</p>
+                        <p className="text-2xs uppercase text-ink-faint">{inv.status}</p>
+                      </div>
+                      <span className="text-sm font-semibold">
+                        ₹{((inv.amount_paise + inv.gst_paise) / 100).toLocaleString("en-IN")}
+                      </span>
+                    </Card>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="flex items-center justify-center gap-2 pt-1 text-xs text-ink-faint">
           <Icon name="shield" className="h-4 w-4" />

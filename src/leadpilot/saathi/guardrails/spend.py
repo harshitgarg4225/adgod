@@ -28,3 +28,18 @@ def clamp_scale(*, current_paise: int, proposed_paise: int) -> int:
     """Clamp a budget increase to +MAX_DAILY_SCALE_PCT%/day."""
     ceiling = current_paise + (current_paise * MAX_DAILY_SCALE_PCT) // 100
     return min(proposed_paise, ceiling)
+
+
+def check_monthly_cap(
+    *, month_to_date_paise: int, monthly_cap_paise: int | None
+) -> GuardrailResult:
+    """Block further spend once the account's month-to-date spend reaches its monthly cap.
+    A cap of None/0 means uncapped."""
+    if monthly_cap_paise and month_to_date_paise >= monthly_cap_paise:
+        return GuardrailResult.blocked(
+            GuardrailType.SPEND,
+            reason="monthly_cap_reached",
+            severity="ERROR",
+            action="HARD_PAUSE",
+        )
+    return GuardrailResult.passed(GuardrailType.SPEND)

@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from html import escape
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -11,7 +13,7 @@ from leadpilot.bff.deps import Principal, current_principal
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.core.db import tenant_session
 from leadpilot.core.enums import SubscriptionStatus, SubscriptionTier, WalletEntryType
-from leadpilot.core.models import Invoice, Subscription, WalletLedger
+from leadpilot.core.models import Account, Invoice, Subscription, WalletLedger
 from leadpilot.core.money import format_paise, with_gst
 from leadpilot.integrations.razorpay import get_razorpay_adapter
 from leadpilot.integrations.razorpay.base import TIER_PRICE_PAISE, TRIAL_DAYS
@@ -147,6 +149,47 @@ def wallet(principal: Principal = Depends(current_principal)) -> dict:
                    "balance_paise": r.balance_paise, "ref": r.ref,
                    "created_at": r.created_at.isoformat()} for r in rows]
     return {"balance_paise": balance, "balance_display": format_paise(balance), "ledger": ledger}
+
+
+@router.get("/invoices/{invoice_id}/document", response_class=HTMLResponse)
+def invoice_document(
+    invoice_id: str, principal: Principal = Depends(current_principal)
+) -> HTMLResponse:
+    """A GST-compliant invoice as printable HTML (the browser saves it as PDF). Includes
+    the buyer's GSTIN/legal name/address so it's valid for Indian B2B input-credit."""
+    with tenant_session(principal.tenant_id) as s:
+        inv = s.get(Invoice, invoice_id)
+        if inv is None or (
+            principal.account_id and str(inv.account_id) != principal.account_id
+        ):
+            raise NotFoundError("Invoice not found")
+        account = s.get(Account, inv.account_id)
+        buyer_name = escape((account.legal_name or account.business_name) if account else "")
+        gstin = escape(account.gstin or "—") if account else "—"
+        address = escape(account.billing_address or "—") if account else "—"
+        base = inv.amount_paise
+        gst = inv.gst_paise
+        total = base + gst
+        html = f"""<!doctype html><html><head><meta charset="utf-8">
+<title>Invoice {escape(str(inv.id))[:8]}</title>
+<style>
+ body{{font-family:system-ui,sans-serif;color:#0F172A;max-width:640px;margin:32px auto;padding:0 20px}}
+ h1{{color:#0B7A4B}} table{{width:100%;border-collapse:collapse;margin-top:16px}}
+ td,th{{padding:8px;border-bottom:1px solid #E2E8F0;text-align:left}}
+ .r{{text-align:right}} .muted{{color:#64748B;font-size:13px}} .tot{{font-weight:700}}
+</style></head><body>
+ <h1>Salmor</h1>
+ <p class="muted">Tax Invoice · {escape(inv.period or "")} · Status: {escape(inv.status)}</p>
+ <p><b>Billed to:</b> {buyer_name}<br><span class="muted">GSTIN: {gstin}<br>{address}</span></p>
+ <table>
+  <tr><th>Description</th><th class="r">Amount</th></tr>
+  <tr><td>Salmor subscription</td><td class="r">{escape(format_paise(base))}</td></tr>
+  <tr><td>GST @ 18%</td><td class="r">{escape(format_paise(gst))}</td></tr>
+  <tr class="tot"><td>Total</td><td class="r">{escape(format_paise(total))}</td></tr>
+ </table>
+ <p class="muted">This is a computer-generated invoice.</p>
+</body></html>"""
+        return HTMLResponse(content=html)
 
 
 @router.get("/tiers")

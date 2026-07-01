@@ -73,6 +73,10 @@ class Account(Base, TimestampMixin):
     timezone: Mapped[str] = mapped_column(String(40), default="Asia/Kolkata")
     target_cpql_paise: Mapped[int] = mapped_column(BigInteger, default=20000)
     created_via: Mapped[str | None] = mapped_column(String(40))
+    # India B2B invoicing details (GST-compliant invoices).
+    gstin: Mapped[str | None] = mapped_column(String(20))
+    legal_name: Mapped[str | None] = mapped_column(String(200))
+    billing_address: Mapped[str | None] = mapped_column(Text)
 
 
 class User(Base, TimestampMixin):
