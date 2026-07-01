@@ -1,0 +1,68 @@
+# Salmor — Review-free launch for the first few clients
+
+You do **not** need Meta App Review or a WhatsApp WABA/green-tick to run ads and deliver
+leads for your first customers. Operate as an **agency** and use the client's **own
+WhatsApp number**. This is standard, policy-compliant operation — not an evasion.
+
+## What each "review" is actually for (so you know what you're *not* blocked by)
+
+| Gate | When it's required | How you skip it for the first few |
+|---|---|---|
+| **Meta App Review** (`ads_management`) | Only for the **self-serve OAuth** flow where strangers log into *your* app | Run ads from **your** Meta Business Manager with a **System User token** on the client's ad account. No App Review. |
+| **WhatsApp WABA + green-tick + template approval** | Only for the **automated AI qualifier** (Cloud API) | Use **`APP_DESTINATION`**: the Click-to-WhatsApp ad opens the client's **own** WhatsApp number. No API, no templates. The owner (or you) replies. |
+| **Razorpay activation** | Only to auto-charge subscriptions | Bill the first few by hand (your own UPI/link). The product runs ads + leads without it. |
+
+## What you *do* need
+- Your **Meta Business Manager** + a **System User token** (System Users → Generate Token,
+  with `ads_management`, `business_management`). Add each client's ad account (or create
+  one for them under your Business) and their Facebook Page.
+- An **LLM key** (`ANTHROPIC_API_KEY` and/or `GEMINI_API_KEY`) and optionally **`FAL_API_KEY`**
+  for real image/video creative.
+- The client's **WhatsApp number** (for `APP_DESTINATION`).
+- A deployed instance with strong `JWT_SECRET` / `TOKEN_ENCRYPTION_KEY`, `MOCK_META=false`,
+  `MOCK_LLM=false`, `MOCK_WHATSAPP=true` (own-number mode makes no WhatsApp API calls).
+
+## Provision a client in one command
+
+```bash
+python -m leadpilot.scripts.provision_client \
+  --business "Verma Dental" --category clinic --city Indore \
+  --owner-phone +919812345678 --daily-budget 500 --language hi \
+  --autopilot ASSISTED \
+  --meta-business <YOUR_BM_ID> --ad-account <CLIENT_AD_ACCT> --page <CLIENT_PAGE> \
+  --meta-token "EAAG...<your System User token>"
+```
+
+This creates the tenant + owner + account + business profile, stores the Meta connection
+(token encrypted at rest), and sets WhatsApp to `APP_DESTINATION` on the client's number.
+The owner logs into the app with **phone OTP** (their `--owner-phone`).
+
+## Go live
+1. **Autonomous path (hands-off):** pass `--autopilot FULL`. The `progress_accounts` cron
+   (every 10 min) drives the account **research → creative (image + video) → launch** with
+   no clicks. Ads go live on the client's ad account; clicks open their WhatsApp.
+2. **Assisted path (you approve):** default. Saathi researches + writes creatives; you (or
+   the owner) approve them in the app, then it launches. Trigger phases immediately instead
+   of waiting for the cron:
+   ```bash
+   # inside a python shell / one-off task, per account_id:
+   from leadpilot.saathi import pipeline
+   from leadpilot.core.db import tenant_session
+   with tenant_session(TENANT_ID) as s: pipeline.run_research(s, tenant_id=TENANT_ID, account_id=ACCT_ID)
+   with tenant_session(TENANT_ID) as s: pipeline.run_creative(s, tenant_id=TENANT_ID, account_id=ACCT_ID)
+   with tenant_session(TENANT_ID) as s: pipeline.launch_campaigns(s, tenant_id=TENANT_ID, account_id=ACCT_ID)
+   ```
+
+## When to add the automated AI qualifier (later, per client)
+Only if a client wants Saathi to auto-reply on WhatsApp 24×7:
+1. Onboard a WhatsApp Cloud API number (directly, or via a BSP that is already an approved
+   Meta Tech Provider — you inherit their platform status).
+2. Re-provision with `--wa-mode CLOUD_API --phone-number-id <PNID>` (registers the routing
+   key), submit the seeded templates for approval, set `MOCK_WHATSAPP=false`.
+Everything else stays the same.
+
+## The line we don't cross
+Agency operation, own-number CTWA, and client-owned ad accounts are legitimate ways to run
+**without** those reviews. We do **not** fake verification status, misrepresent the app to
+Meta, or spoof anything to *evade* a policy — that risks account bans and isn't supported.
+```
