@@ -117,6 +117,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  sendLeadMessage: (leadId: string, text: string) =>
+    req<{ message_id: string; status: string }>(`/leads/${leadId}/message`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
   notifications: (accountId: string) =>
     req<Notification[]>(`/accounts/${accountId}/notifications`),
   markNotificationsRead: (accountId: string) =>

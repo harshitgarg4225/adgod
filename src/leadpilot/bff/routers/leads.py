@@ -5,9 +5,11 @@ from __future__ import annotations
 import csv
 import io
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select
 
 from leadpilot.bff.deps import Principal, current_principal, require_account_access
@@ -21,7 +23,13 @@ from leadpilot.bff.schemas import (
 )
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.core.db import tenant_session
-from leadpilot.core.enums import AccountPhase, LeadScore, LeadStatus, OwnerAction
+from leadpilot.core.enums import (
+    AccountPhase,
+    ConversationState,
+    LeadScore,
+    LeadStatus,
+    OwnerAction,
+)
 from leadpilot.core.models import (
     Account,
     AdInsight,
@@ -30,8 +38,10 @@ from leadpilot.core.models import (
     Lead,
     Message,
     Notification,
+    WhatsAppConnection,
 )
 from leadpilot.core.money import format_paise
+from leadpilot.saathi.outbound import enqueue_send
 
 router = APIRouter(tags=["leads"])
 
@@ -133,6 +143,54 @@ def patch_lead(
         if patch.status:
             lead.status = patch.status
     return get_lead(lead_id, principal)
+
+
+class OwnerMessageIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+@router.post("/leads/{lead_id}/message")
+def send_owner_message(
+    lead_id: str, body: OwnerMessageIn, principal: Principal = Depends(current_principal)
+) -> dict:
+    """Owner sends a WhatsApp reply from the app (in-app takeover). Free-form text is only
+    valid inside the 24h service window; outside it we ask the owner to use a call/template
+    instead of silently failing at Meta."""
+    now = datetime.now(UTC)
+    with tenant_session(principal.tenant_id) as session:
+        lead = session.get(Lead, lead_id)
+        if lead is None:
+            raise NotFoundError("Lead not found")
+        require_account_access(principal, str(lead.account_id))
+        conv = session.scalar(select(Conversation).where(Conversation.lead_id == lead.id))
+        if conv is None:
+            raise ValidationError("No conversation for this lead yet")
+        if conv.free_window_expires_at and conv.free_window_expires_at < now:
+            raise ValidationError(
+                "The free 24-hour window has closed. Please call the lead instead.",
+                user_message_key="error.window_closed",
+            )
+        wa = session.scalar(
+            select(WhatsAppConnection).where(WhatsAppConnection.account_id == lead.account_id)
+        )
+        if wa is None or not wa.phone_number_id:
+            raise ValidationError("WhatsApp is not connected for this account")
+        msg = enqueue_send(
+            session,
+            tenant_id=lead.tenant_id,
+            account_id=lead.account_id,
+            conversation_id=conv.id,
+            phone_number_id=wa.phone_number_id,
+            to_phone=lead.wa_phone,
+            step_id=f"owner:{uuid4()}",
+            kind="text",
+            body=body.text,
+        )
+        conv.last_outbound_at = now
+        # Owner takeover — Saathi steps back on this chat.
+        conv.state = ConversationState.HANDOFF.value
+        lead.owner_action = OwnerAction.CALLED.value
+        return {"message_id": str(msg.id), "status": "queued"}
 
 
 @router.get("/accounts/{account_id}/home", response_model=HomeOut)

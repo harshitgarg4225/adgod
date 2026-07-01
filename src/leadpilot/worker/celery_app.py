@@ -54,6 +54,10 @@ app.conf.beat_schedule = {
         "task": "leadpilot.leads.mark_no_response",
         "schedule": crontab(minute=15),
     },
+    "re-engage-hourly": {
+        "task": "leadpilot.leads.re_engage",
+        "schedule": crontab(minute=30),
+    },
     "reporter-daily-2000-ist": {
         "task": "leadpilot.reporter.dispatch_daily",
         "schedule": crontab(hour=20, minute=0),

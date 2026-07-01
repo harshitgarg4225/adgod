@@ -30,6 +30,8 @@ export default function LeadPage() {
   const [celebrate, setCelebrate] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [slot, setSlot] = useState("");
+  const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -57,6 +59,21 @@ export default function LeadPage() {
       toast.show(e.userMessage || t("common.somethingWrong", "Could not update."), "error");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function send() {
+    if (!reply.trim()) return;
+    setSending(true);
+    try {
+      await api.sendLeadMessage(params.id, reply.trim());
+      setReply("");
+      toast.show(t("leads.sent", "Sent on WhatsApp"));
+      setLead(await api.lead(params.id));
+    } catch (e: any) {
+      toast.show(e.userMessage || t("common.somethingWrong", "Could not send."), "error");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -153,6 +170,23 @@ export default function LeadPage() {
             ))}
           </div>
         )}
+      </section>
+
+      {/* In-app compose (owner takeover within the 24h window) */}
+      <section className="px-4 pt-4">
+        <div className="flex items-end gap-2">
+          <textarea
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            rows={1}
+            placeholder={t("leads.reply", "Reply on WhatsApp…")}
+            aria-label={t("leads.reply", "Reply on WhatsApp")}
+            className="max-h-28 min-h-[48px] flex-1 resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-base focus:border-brand"
+          />
+          <Button leftIcon="whatsapp" loading={sending} disabled={!reply.trim()} onClick={send}>
+            {t("leads.send", "Send")}
+          </Button>
+        </div>
       </section>
 
       {/* Sticky action dock */}

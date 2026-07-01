@@ -17,6 +17,7 @@ from leadpilot.core.models import (
     Tenant,
     User,
     WaRoute,
+    WaTemplate,
     WhatsAppConnection,
 )
 from leadpilot.core.money import Paise
@@ -69,6 +70,18 @@ def seed() -> None:
             s.add(User(id=DEMO_PARTNER_USER_ID, tenant_id=DEMO_PARTNER_TENANT_ID, account_id=None,
                        phone=DEMO_PARTNER_PHONE, role=UserRole.PARTNER.value, name="Priya",
                        locale="en"))
+        # Shared (platform) WhatsApp templates — the only messages allowed outside the 24h
+        # window. Seeded APPROVED so re-engagement/reports have something to send.
+        for name, body in (
+            ("re_engagement", "Namaste {{1}} 👋 You enquired with us recently — still "
+                              "interested? Reply here and we'll help right away."),
+            ("daily_summary", "Your Salmor update: {{1}} enquiries, {{2}} qualified today. "
+                              "Spend so far: {{3}}."),
+            ("welcome", "Namaste 👋 Thanks for reaching out. How can we help you today?"),
+        ):
+            if s.scalar(select(WaTemplate).where(WaTemplate.name == name)) is None:
+                s.add(WaTemplate(tenant_id=None, account_id=None, name=name, language="hi",
+                                 category="UTILITY", body=body, status="APPROVED"))
 
     # Account + profile + WhatsApp connection (RLS tables — under tenant context).
     with tenant_session(DEMO_TENANT_ID) as s:

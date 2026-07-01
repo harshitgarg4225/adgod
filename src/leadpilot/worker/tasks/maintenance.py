@@ -101,6 +101,60 @@ def mark_no_response() -> dict:
     return {"marked": n}
 
 
+@app.task(name="leadpilot.leads.re_engage")
+def re_engage() -> dict:
+    """Hourly: send an approved re-engagement template to silent (NO_RESPONSE) leads.
+
+    Templates are the only messages Meta allows outside the 24h window, so this is how a
+    gone-quiet paid lead gets one more nudge. Idempotent: a lead already carrying a
+    re-engagement template message is skipped, so it fires at most once per lead."""
+    from sqlalchemy import select
+
+    from leadpilot.core.models import Conversation, Lead, Message, WhatsAppConnection
+    from leadpilot.saathi.outbound import enqueue_send
+
+    sent = 0
+    with platform_session() as s:
+        leads = s.scalars(select(Lead).where(Lead.status == "NO_RESPONSE")).all()
+        for lead in leads:
+            conv = s.scalar(select(Conversation).where(Conversation.lead_id == lead.id))
+            if conv is None:
+                continue
+            already = s.scalar(
+                select(Message).where(
+                    Message.conversation_id == conv.id,
+                    Message.type == "TEMPLATE",
+                    Message.template_name == "re_engagement",
+                )
+            )
+            if already is not None:
+                continue
+            wa = s.scalar(
+                select(WhatsAppConnection).where(
+                    WhatsAppConnection.account_id == lead.account_id
+                )
+            )
+            if wa is None or not wa.phone_number_id:
+                continue
+            enqueue_send(
+                s,
+                tenant_id=lead.tenant_id,
+                account_id=lead.account_id,
+                conversation_id=conv.id,
+                phone_number_id=wa.phone_number_id,
+                to_phone=lead.wa_phone,
+                step_id=f"reengage:{conv.id}",
+                kind="template",
+                template_name="re_engagement",
+                language="hi",
+                params=[lead.name or "there"],
+            )
+            sent += 1
+    if sent:
+        log.info("re_engage", sent=sent)
+    return {"sent": sent}
+
+
 @app.task(name="leadpilot.workflow.retention_sweep")
 def retention_sweep() -> dict:
     """Daily: bound the growth of durability/PII tables. Runs as the platform role; each

@@ -35,7 +35,17 @@ def handle_whatsapp_send(entry: dict) -> dict:
         adapter = get_whatsapp_adapter()
         phone_number_id = payload["phone_number_id"]
         to_phone = payload["to_phone"]
-        if payload.get("kind") == "interactive" and payload.get("buttons"):
+        kind = payload.get("kind")
+        if kind == "template":
+            # Proactive / out-of-window send — Meta only allows approved templates here.
+            result = adapter.send_template(
+                phone_number_id=phone_number_id,
+                to_phone=to_phone,
+                template_name=payload["template_name"],
+                language=payload.get("language", "hi"),
+                params=payload.get("params") or [],
+            )
+        elif kind == "interactive" and payload.get("buttons"):
             result = adapter.send_interactive(
                 phone_number_id=phone_number_id,
                 to_phone=to_phone,
