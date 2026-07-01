@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, getUser } from "@/lib/api";
+import { api, exitClient, getActingAs, getUser } from "@/lib/api";
 import type { Home, LeadListItem } from "@/lib/types";
 import { useT } from "@/lib/i18n";
 import {
+  ActingAsBanner,
   BottomNav,
   Card,
   ConfirmDialog,
@@ -34,6 +35,11 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [confirmPause, setConfirmPause] = useState(false);
   const [busyPause, setBusyPause] = useState(false);
+  const [actingAs, setActingAs] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActingAs(getActingAs());
+  }, []);
 
   const load = useCallback(async () => {
     const user = getUser();
@@ -85,6 +91,15 @@ export default function Dashboard() {
 
   return (
     <main className="min-h-[100dvh] pb-28">
+      {actingAs && (
+        <ActingAsBanner
+          name={actingAs}
+          onExit={() => {
+            exitClient();
+            router.replace("/partner");
+          }}
+        />
+      )}
       <OfflineBanner />
 
       {/* Header */}

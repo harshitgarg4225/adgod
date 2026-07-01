@@ -12,9 +12,12 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from leadpilot.bff.deps import Principal, current_principal, require_role
+from leadpilot.common.auth import issue_access_token
+from leadpilot.common.errors import NotFoundError
 from leadpilot.core.db import tenant_session
 from leadpilot.core.enums import AccountPhase
-from leadpilot.core.models import Account, AdInsight, BusinessProfile, Lead
+from leadpilot.core.models import Account, AdInsight, BusinessProfile, Lead, Subscription
+from leadpilot.core.money import format_paise
 
 router = APIRouter(prefix="/partner", tags=["partner"])
 
@@ -66,6 +69,74 @@ def list_sub_accounts(principal: Principal = Depends(current_principal)) -> list
                         "category": a.category, "phase": a.phase,
                         "qualified_24h": int(qualified), "cpql_paise": _latest_cpql(s, a.id)})
         return out
+
+
+@router.get("/sub-accounts/{account_id}")
+def sub_account_detail(
+    account_id: str, principal: Principal = Depends(current_principal)
+) -> dict:
+    """One client's performance + billing at a glance. RLS confines the lookup to the
+    partner's own tenant, so a partner can never see another agency's client."""
+    require_role(principal, {"PARTNER", "ADMIN"})
+    with tenant_session(principal.tenant_id) as s:
+        a = s.get(Account, account_id)
+        if a is None:
+            raise NotFoundError("Client not found")
+        profile = s.scalar(
+            select(BusinessProfile).where(BusinessProfile.account_id == a.id)
+        )
+        spend = int(s.scalar(
+            select(func.coalesce(func.sum(AdInsight.spend_paise), 0))
+            .where(AdInsight.account_id == a.id)
+        ) or 0)
+        qualified = int(s.scalar(
+            select(func.count(Lead.id)).where(
+                Lead.account_id == a.id,
+                Lead.status.in_(["QUALIFIED_HOT", "QUALIFIED_WARM"]))
+        ) or 0)
+        total_leads = int(s.scalar(
+            select(func.count(Lead.id)).where(Lead.account_id == a.id)
+        ) or 0)
+        sub = s.scalar(select(Subscription).where(Subscription.account_id == a.id))
+        # A simple 15% agency commission on managed spend, shown to the reseller.
+        commission = (spend * 15) // 100
+        return {
+            "account_id": str(a.id),
+            "business_name": a.business_name,
+            "category": a.category,
+            "phase": a.phase,
+            "city": profile.service_area_city if profile else None,
+            "daily_budget_paise": profile.daily_budget_paise if profile else 0,
+            "total_spend_paise": spend,
+            "total_spend_display": format_paise(spend),
+            "total_leads": total_leads,
+            "qualified_leads": qualified,
+            "cpql_paise": _latest_cpql(s, a.id),
+            "subscription_tier": sub.tier if sub else None,
+            "subscription_status": sub.status if sub else None,
+            "commission_paise": commission,
+            "commission_display": format_paise(commission),
+        }
+
+
+@router.post("/sub-accounts/{account_id}/open")
+def open_sub_account(
+    account_id: str, principal: Principal = Depends(current_principal)
+) -> dict:
+    """Issue a short-lived owner-scoped token for one client so the partner can open that
+    client's dashboard/leads/reports. Scoped to a single account in the partner's tenant."""
+    require_role(principal, {"PARTNER", "ADMIN"})
+    with tenant_session(principal.tenant_id) as s:
+        a = s.get(Account, account_id)
+        if a is None:
+            raise NotFoundError("Client not found")
+    token = issue_access_token(
+        user_id=principal.user_id,
+        tenant_id=principal.tenant_id,
+        account_id=account_id,
+        role="OWNER",  # act as the client owner, but only for this one account
+    )
+    return {"access": token, "account_id": account_id, "business_name": a.business_name}
 
 
 @router.get("/rollup")

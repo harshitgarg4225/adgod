@@ -17,6 +17,7 @@ import type {
   LeadDetail,
   LeadListItem,
   Notification,
+  PartnerClientDetail,
   PartnerSubAccount,
   Rollup,
   Settings,
@@ -53,6 +54,37 @@ export function getUser() {
 export function getToken() {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(ACCESS_KEY);
+}
+
+// ── Partner "act as client" session swap ──
+const PARTNER_TOKEN_KEY = "salmor_partner_access";
+const PARTNER_USER_KEY = "salmor_partner_user";
+const ACTING_AS_KEY = "salmor_acting_as";
+
+export function enterClient(clientAccess: string, accountId: string, name: string) {
+  const tok = getToken();
+  const user = localStorage.getItem(USER_KEY);
+  if (tok) localStorage.setItem(PARTNER_TOKEN_KEY, tok);
+  if (user) localStorage.setItem(PARTNER_USER_KEY, user);
+  localStorage.setItem(ACCESS_KEY, clientAccess);
+  const u = getUser();
+  if (u) localStorage.setItem(USER_KEY, JSON.stringify({ ...u, account_id: accountId, name }));
+  localStorage.setItem(ACTING_AS_KEY, name);
+}
+
+export function exitClient() {
+  const tok = localStorage.getItem(PARTNER_TOKEN_KEY);
+  const user = localStorage.getItem(PARTNER_USER_KEY);
+  if (tok) localStorage.setItem(ACCESS_KEY, tok);
+  if (user) localStorage.setItem(USER_KEY, user);
+  localStorage.removeItem(PARTNER_TOKEN_KEY);
+  localStorage.removeItem(PARTNER_USER_KEY);
+  localStorage.removeItem(ACTING_AS_KEY);
+}
+
+export function getActingAs(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(ACTING_AS_KEY);
 }
 
 class ApiError extends Error {
@@ -248,6 +280,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  partnerSubAccount: (accountId: string) =>
+    req<PartnerClientDetail>(`/partner/sub-accounts/${accountId}`),
+  partnerOpen: (accountId: string) =>
+    req<{ access: string; account_id: string; business_name: string }>(
+      `/partner/sub-accounts/${accountId}/open`,
+      { method: "POST" }
+    ),
 
   // Admin console
   adminAccounts: (q: string) =>

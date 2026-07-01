@@ -245,6 +245,24 @@ export interface PartnerSubAccount {
   cpql_paise: number | null;
 }
 
+export interface PartnerClientDetail {
+  account_id: string;
+  business_name: string;
+  category: string;
+  phase: string;
+  city: string | null;
+  daily_budget_paise: number;
+  total_spend_paise: number;
+  total_spend_display: string;
+  total_leads: number;
+  qualified_leads: number;
+  cpql_paise: number | null;
+  subscription_tier: string | null;
+  subscription_status: string | null;
+  commission_paise: number;
+  commission_display: string;
+}
+
 export interface Rollup {
   accounts: number;
   live: number;

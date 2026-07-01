@@ -801,6 +801,20 @@ export function OfflineBanner() {
 
 /* ───────────────────────────── Saathi status ───────────────────────────── */
 
+export function ActingAsBanner({ name, onExit }: { name: string; onExit: () => void }) {
+  return (
+    <div className="sticky top-0 z-40 flex items-center justify-between gap-2 bg-accent px-4 py-2 text-sm font-medium text-white">
+      <span className="truncate">
+        {"Viewing "}
+        <b>{name}</b>
+      </span>
+      <button onClick={onExit} className="shrink-0 rounded-lg bg-white/20 px-3 py-1 text-xs font-semibold">
+        Back to agency
+      </button>
+    </div>
+  );
+}
+
 export function SaathiStatusCard({ line }: { line: string }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-gradient-to-br from-brand to-brand-700 p-4 text-white shadow-brand">
