@@ -51,6 +51,7 @@ from leadpilot.core.models import (
     WhatsAppConnection,
 )
 from leadpilot.integrations.meta import get_meta_adapter
+from leadpilot.integrations.scrape import scrape_site
 from leadpilot.integrations.whatsapp import get_whatsapp_adapter
 from leadpilot.saathi.agents.buyer import BuyerAgent
 from leadpilot.saathi.agents.maker import MakerAgent
@@ -91,12 +92,15 @@ def run_research(session: Session, *, tenant_id: UUID, account_id: UUID) -> UUID
     profile = session.scalar(select(BusinessProfile).where(BusinessProfile.account_id == account_id))
     city = (profile.service_area_city if profile else None) or "your city"
     offer = (profile.offer if profile else None) or account.business_name
+    # Ground the research in the owner's own site (value props / testimonials / pricing)
+    # and competitor ads from the Meta Ad Library (fresh angles + counter-positioning).
+    site_text = scrape_site(profile.website_url if profile else None)
     competitors = get_meta_adapter().search_ad_library(query=f"{account.category} {city}")
 
     out = ScoutAgent().run(
         session, tenant_id=tenant_id, account_id=account_id,
         context={"category": account.category, "offer": offer, "city": city,
-                 "competitors": competitors},
+                 "site_content": site_text, "competitors": competitors},
     )
 
     version = (session.scalar(
@@ -171,6 +175,24 @@ def run_creative(session: Session, *, tenant_id: UUID, account_id: UUID, max_ang
         if comp.ok:
             embed_creative(session, creative)  # semantic memory for future retrieval
         creative_ids.append(creative.id)
+
+        # UGC-style video variant for the same angle — sustained scroll-stopping creative
+        # keeps click-through (and leads) from decaying. Uses the approved copy as the
+        # script; reuses the image as the thumbnail.
+        if comp.ok:
+            script = f"{variant.headline}. {variant.primary_text}"
+            video_url = get_creative_provider().generate_video(script=script)
+            video = Creative(
+                tenant_id=tenant_id, account_id=account_id, angle_id=angle.id,
+                language=account.default_language, format=CreativeFormat.VIDEO_9_16.value,
+                primary_text=variant.primary_text, headline=variant.headline,
+                description=variant.description, asset_url=video_url, thumb_url=image_url,
+                compliance_status=compliance_status.value, approval_status=approval.value,
+                hypothesis=angle.hypothesis,
+            )
+            session.add(video)
+            session.flush()
+            creative_ids.append(video.id)
 
     # Trust gate (PRD §4.5.4): full autopilot auto-approves; otherwise queue an approval.
     if full_autopilot:

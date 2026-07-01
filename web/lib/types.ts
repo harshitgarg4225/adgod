@@ -179,6 +179,8 @@ export interface CreativeItem {
   headline: string | null;
   primary_text: string | null;
   asset_url: string | null;
+  thumb_url?: string | null;
+  format?: string;
   compliance_status: string;
   approval_status: string;
   language: string;

@@ -100,7 +100,8 @@ def list_creatives(account_id: str, principal: Principal = Depends(current_princ
     with tenant_session(principal.tenant_id) as s:
         rows = s.scalars(select(Creative).where(Creative.account_id == account_id)).all()
         return [{"id": str(c.id), "headline": c.headline, "primary_text": c.primary_text,
-                 "asset_url": c.asset_url, "compliance_status": c.compliance_status,
+                 "asset_url": c.asset_url, "thumb_url": c.thumb_url, "format": c.format,
+                 "compliance_status": c.compliance_status,
                  "approval_status": c.approval_status, "language": c.language} for c in rows]
 
 

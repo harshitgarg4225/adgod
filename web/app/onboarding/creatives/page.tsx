@@ -91,8 +91,15 @@ export default function CreativesPage() {
           const ok = c.compliance_status === "PASSED";
           return (
             <Card key={c.id} className="overflow-hidden !p-0">
-              <div className="flex aspect-[4/5] items-center justify-center bg-gradient-to-br from-brand-50 to-accent-light">
-                {c.asset_url ? (
+              <div className="relative flex aspect-[4/5] items-center justify-center bg-gradient-to-br from-brand-50 to-accent-light">
+                {c.format === "VIDEO_9_16" && c.asset_url ? (
+                  <>
+                    <video src={c.asset_url} poster={c.thumb_url || undefined} controls className="h-full w-full object-cover" />
+                    <span className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-2xs font-semibold text-white">
+                      Video
+                    </span>
+                  </>
+                ) : c.asset_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={c.asset_url} alt={c.headline || "Ad creative"} className="h-full w-full object-cover" />
                 ) : (

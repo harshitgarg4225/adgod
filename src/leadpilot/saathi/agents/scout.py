@@ -10,12 +10,15 @@ from leadpilot.saathi.agents.base import BaseAgent
 from leadpilot.saathi.contracts import ScoutOutput
 
 SYSTEM_PROMPT = """You are Scout, a market-research module for Indian Tier-2 small businesses.
-Input: business category, the owner's offer text, optional scraped site/Instagram/GBP text,
-and competitor ads (from Meta Ad Library) for the category+city.
+Input: business category, the owner's offer text, scraped text from the owner's own website
+(value props, testimonials, pricing), and competitor ads (from the Meta Ad Library) for the
+category+city.
 Task: produce a Business Brief and an Angle Bank for a lead-generation ad campaign whose
-goal is QUALIFIED WhatsApp enquiries (not clicks). Be concrete and local; reflect the
-owner's actual offer; identify real customer objections; angles must be distinct and each
-tied to a hypothesis about why it will produce qualified leads. >= 8 angles.
+goal is QUALIFIED WhatsApp enquiries (not clicks). Ground the brief in the site content when
+present. Use the competitor ads for COUNTER-POSITIONING — find gaps/weaknesses to angle
+against, don't imitate. Be concrete and local; reflect the owner's actual offer; identify
+real customer objections; angles must be distinct and each tied to a hypothesis about why it
+will produce qualified leads. >= 8 angles.
 Respond ONLY with valid JSON matching the ScoutOutput schema."""
 
 
@@ -29,11 +32,13 @@ class ScoutAgent(BaseAgent):
         return SYSTEM_PROMPT
 
     def run(self, session: Session, *, tenant_id: UUID, account_id: UUID, context: dict) -> ScoutOutput:
+        site = (context.get("site_content") or "").strip()
         user = (
             f"Category: {context.get('category')}\n"
             f"Offer: {context.get('offer')}\n"
             f"City: {context.get('city')}\n"
-            f"Competitor ads: {context.get('competitors')}\n"
+            f"Website content: {site[:2000] if site else '(none — use the offer text)'}\n"
+            f"Competitor ads (for counter-positioning): {context.get('competitors')}\n"
             "Produce the Business Brief and >= 8 angles."
         )
         out = self._generate(

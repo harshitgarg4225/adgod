@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     llm_daily_budget_per_account_paise: int = 5000
     llm_max_output_tokens: int = 2048
     llm_request_timeout_s: float = 30.0
+    # UGC video generation (text-to-video, e.g. a fal.ai/Kling-style endpoint).
+    video_provider_url: str = "https://api.example-video.dev/generate"
+    video_provider_key: str | None = None
 
     # Meta
     meta_app_id: str | None = None
