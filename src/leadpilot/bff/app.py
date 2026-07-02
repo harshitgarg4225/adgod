@@ -23,7 +23,12 @@ from leadpilot.bff.routers import (
     settings as settings_router,
 )
 from leadpilot.common.config import settings
-from leadpilot.common.errors import AppError, app_error_handler, unhandled_error_handler
+from leadpilot.common.errors import (
+    AppError,
+    app_error_handler,
+    unhandled_error_handler,
+    value_error_handler,
+)
 from leadpilot.common.i18n import normalize_locale
 from leadpilot.common.logging import configure_logging
 from leadpilot.common.observability import init_observability, readiness
@@ -57,6 +62,7 @@ async def locale_middleware(request: Request, call_next):
 
 
 app.add_exception_handler(AppError, app_error_handler)
+app.add_exception_handler(ValueError, value_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
 
 

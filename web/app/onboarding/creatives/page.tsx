@@ -62,6 +62,12 @@ export default function CreativesPage() {
   async function launch() {
     setBusy(true);
     try {
+      // Launching IS approving what you kept: promote every kept, policy-passed creative
+      // first — otherwise they stay DRAFT and the server rightly refuses to launch.
+      const toApprove = kept.filter(
+        (c) => c.compliance_status === "PASSED" && c.approval_status !== "APPROVED_FOR_LAUNCH"
+      );
+      await Promise.all(toApprove.map((c) => api.approveCreative(c.id)));
       await api.launch(getUser()!.account_id!);
       // The aha moment — celebrate before sending them home.
       setCelebrate(true);

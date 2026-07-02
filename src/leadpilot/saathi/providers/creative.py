@@ -90,18 +90,53 @@ def fal_generate_video_bytes(
     return client.get(video_url).content
 
 
+# Imagen (Gemini API) supports these exact ratios; anything else maps to the closest.
+_IMAGEN_RATIOS = {"1:1", "3:4", "4:3", "9:16", "16:9"}
+_RATIO_FALLBACK = {"4:5": "3:4", "5:4": "4:3"}
+
+
+def imagen_generate_bytes(prompt: str, *, ratio: str, api_key: str,
+                          model: str = "imagen-3.0-generate-002",
+                          client: Any = None) -> bytes:
+    """One Imagen REST call (documented :predict shape) → PNG bytes. Plain httpx instead
+    of the google-generativeai SDK — that SDK is EOL and has no image API (calling the
+    imagined `genai.ImageGenerationModel` crashed the whole creative batch)."""
+    import base64
+
+    import httpx
+
+    aspect = ratio if ratio in _IMAGEN_RATIOS else _RATIO_FALLBACK.get(ratio, "1:1")
+    own_client = client is None
+    client = client or httpx.Client(timeout=settings.llm_request_timeout_s)
+    try:
+        resp = client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict",
+            headers={"x-goog-api-key": api_key},
+            json={"instances": [{"prompt": prompt}],
+                  "parameters": {"sampleCount": 1, "aspectRatio": aspect}},
+        )
+        resp.raise_for_status()
+        predictions = resp.json().get("predictions", [])
+        if not predictions:
+            raise RuntimeError("imagen returned no predictions")
+        return base64.b64decode(predictions[0]["bytesBase64Encoded"])
+    finally:
+        if own_client:
+            client.close()
+
+
 class RealCreativeProvider(CreativeProvider):
     def generate_image(self, *, prompt: str, ratio: str = "4:5") -> str:
-        if not settings.gemini_api_key:  # pragma: no cover
+        if not settings.gemini_api_key:
             return MockCreativeProvider().generate_image(prompt=prompt, ratio=ratio)
-        import google.generativeai as genai  # pragma: no cover - requires key
-
-        genai.configure(api_key=settings.gemini_api_key)
-        model = genai.ImageGenerationModel("imagen-3.0-generate-001")
-        result = model.generate_images(prompt=prompt, number_of_images=1, aspect_ratio=ratio)
-        data = result.images[0]._image_bytes  # noqa: SLF001 - SDK accessor
-        key = "creatives/" + hashlib.sha256(prompt.encode()).hexdigest()[:16] + ".png"
-        return get_asset_store().put_bytes(key, data, "image/png")
+        try:  # pragma: no cover - requires key
+            data = imagen_generate_bytes(prompt, ratio=ratio,
+                                         api_key=settings.gemini_api_key)
+            key = "creatives/" + hashlib.sha256(prompt.encode()).hexdigest()[:16] + ".png"
+            return get_asset_store().put_bytes(key, data, "image/png")
+        except Exception as exc:  # noqa: BLE001 - never fail the batch on an image hiccup
+            log.warning("imagen_failed", error=str(exc)[:200])
+            return MockCreativeProvider().generate_image(prompt=prompt, ratio=ratio)
 
     def generate_video(self, *, script: str, ratio: str = "9:16") -> str:
         if not settings.fal_api_key:

@@ -67,6 +67,10 @@ app.conf.beat_schedule = {
         "task": "leadpilot.workflow.progress_accounts",
         "schedule": 600.0,  # every 10 min — a backstop; onboarding also drives these
     },
+    "poll-form-leads": {  # review-free Instant-Form intake via owned-asset Graph reads
+        "task": "leadpilot.leads.poll_form_leads",
+        "schedule": 600.0,  # every 10 min — leads are perishable, call within minutes
+    },
     "mark-no-response-hourly": {
         "task": "leadpilot.leads.mark_no_response",
         "schedule": crontab(minute=15),

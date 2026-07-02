@@ -131,7 +131,7 @@ export default function Login() {
         </p>
         <div className="flex items-center justify-center gap-2 text-xs text-ink-faint">
           <Icon name="shield" className="h-4 w-4" />
-          {t("login.trust", "Official Meta partner • Payments secured by Razorpay")}
+          {t("login.trust", "OTP-secured login • Your data stays yours")}
         </div>
       </div>
     </main>

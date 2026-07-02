@@ -64,7 +64,7 @@ def test_full_pipeline_to_optimizing(seeded):
         assert {a.role for a in adsets} == {"PROSPECTING", "RETARGETING", "TESTING"}
         assert all(a.meta_adset_id for a in adsets)
         # Budget split sums within the daily budget (65/20/15 across the three tiers).
-        assert sum(a.budget_paise for a in adsets) <= 50000
+        assert sum(a.budget_paise for a in adsets) <= 100000
         assert s.scalar(select(func.count(Ad.id)).where(Ad.account_id == DEMO_ACCOUNT_ID)) >= 2
         assert s.get(Account, DEMO_ACCOUNT_ID).phase == "LIVE"
 

@@ -101,7 +101,7 @@ def seed() -> None:
                 tenant_id=DEMO_TENANT_ID, account_id=DEMO_ACCOUNT_ID,
                 offer="NEET/JEE coaching with small batches and weekly tests",
                 service_area_city=DEMO_CITY, service_radius_km=10,
-                daily_budget_paise=int(Paise.from_rupees(500)),
+                daily_budget_paise=int(Paise.from_rupees(1000)),
                 monthly_cap_paise=int(Paise.from_rupees(15000)),
                 raw_inputs={"seeded": True},
             ))

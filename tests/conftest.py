@@ -19,6 +19,11 @@ def _migrate():
 
 @pytest.fixture(autouse=True)
 def _clean_db():
+    # The mock Meta adapter tracks created objects by name (launch resume support) —
+    # clear it so campaigns from one test can't be "found" by the next.
+    from leadpilot.integrations.meta.mock import CREATED
+
+    CREATED.clear()
     with engine.begin() as conn:
         tables = conn.execute(
             text(

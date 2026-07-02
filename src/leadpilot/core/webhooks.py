@@ -69,7 +69,7 @@ def apply_razorpay_event(*, event: str, subscription_id: str,
 def capture_leadgen(*, page_id: str, leadgen_id: str, name: str | None,
                     phone: str | None) -> UUID | None:
     """Capture an Instant-Form (Lead Ads) lead into the inbox, resolving the account by
-    page_id. Idempotent on leadgen_id (the source_creative_id slot carries it)."""
+    page_id. Idempotent on leadgen_id (both the webhook and the polling task feed this)."""
     with platform_session() as s:
         row = s.execute(
             select(MetaConnection.tenant_id, MetaConnection.account_id)
@@ -82,11 +82,12 @@ def capture_leadgen(*, page_id: str, leadgen_id: str, name: str | None,
 
     with tenant_session(tenant_id) as s:
         existing = s.scalar(select(Lead).where(
-            Lead.account_id == account_id, Lead.wa_phone == (phone or leadgen_id)))
+            Lead.account_id == account_id, Lead.leadgen_id == leadgen_id))
         if existing is not None:
             return existing.id
         lead = Lead(tenant_id=tenant_id, account_id=account_id, source_channel="META_LEADFORM",
-                    wa_phone=phone or leadgen_id, name=name, status=LeadStatus.NEW.value,
+                    leadgen_id=leadgen_id, wa_phone=phone or "", name=name,
+                    status=LeadStatus.NEW.value,
                     first_msg_at=datetime.now(UTC), intent_summary="Submitted a lead form")
         s.add(lead)
         s.flush()

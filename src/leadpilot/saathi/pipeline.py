@@ -48,9 +48,10 @@ from leadpilot.core.models import (
     MetaConnection,
     Notification,
     OptimizationDecision,
+    User,
     WhatsAppConnection,
 )
-from leadpilot.integrations.meta import get_meta_adapter
+from leadpilot.integrations.meta import meta_adapter_for_account
 from leadpilot.integrations.scrape import scrape_site
 from leadpilot.integrations.whatsapp import get_whatsapp_adapter
 from leadpilot.saathi.agents.buyer import BuyerAgent
@@ -95,7 +96,15 @@ def run_research(session: Session, *, tenant_id: UUID, account_id: UUID) -> UUID
     # Ground the research in the owner's own site (value props / testimonials / pricing)
     # and competitor ads from the Meta Ad Library (fresh angles + counter-positioning).
     site_text = scrape_site(profile.website_url if profile else None)
-    competitors = get_meta_adapter().search_ad_library(query=f"{account.category} {city}")
+    # Competitor data is optional garnish: the Ad Library API is separately gated
+    # (identity verification) and a System User marketing token may not have it — research
+    # must still produce a brief from the site + profile alone.
+    try:
+        competitors = meta_adapter_for_account(session, account_id).search_ad_library(
+            query=f"{account.category} {city}")
+    except Exception as exc:  # noqa: BLE001 - degrade, never stall the account
+        log.warning("ad_library_unavailable", account=str(account_id), error=str(exc)[:200])
+        competitors = []
 
     out = ScoutAgent().run(
         session, tenant_id=tenant_id, account_id=account_id,
@@ -214,6 +223,39 @@ def run_creative(session: Session, *, tenant_id: UUID, account_id: UUID, max_ang
 
 # ─────────────────────────── Buyer: launch ───────────────────────────
 
+def _ctwa_cta(wa_conn: WhatsAppConnection | None, page_id: str) -> dict:
+    """link_data payload for a Click-to-WhatsApp ad. Graph requires a `link`; wa.me/<phone>
+    is the documented review-free deep link into the owner's own WhatsApp (APP_DESTINATION)
+    and works equally for Cloud-API numbers. Falls back to the Page URL."""
+    import re
+
+    link = f"https://facebook.com/{page_id}"
+    if wa_conn and wa_conn.display_phone:
+        digits = re.sub(r"\D", "", wa_conn.display_phone)
+        if digits:
+            link = f"https://wa.me/{digits}"
+    return {"link": link, "call_to_action": {"type": "WHATSAPP_MESSAGE", "value": {"link": link}}}
+
+
+def _budget_tiers(daily_budget: int) -> dict[AdSetRole, int]:
+    """Split the budget across the 3-tier structure, folding tiers whose share would fall
+    below Meta's per-adset daily minimum into PROSPECTING (small budgets run one ad set
+    rather than failing the launch or getting rejected by Graph)."""
+    minimum = settings.meta_min_adset_daily_paise
+    if daily_budget < minimum:
+        raise ValueError(
+            f"daily budget too small to launch: ₹{daily_budget // 100}/day is under the "
+            f"Meta ad-set minimum (₹{minimum // 100}/day)"
+        )
+    roles = [AdSetRole.PROSPECTING, AdSetRole.RETARGETING, AdSetRole.TESTING]
+    split_total = sum(BUDGET_SPLIT[r] for r in roles)
+    tiers = {r: daily_budget * BUDGET_SPLIT[r] // split_total for r in roles}
+    for role in (AdSetRole.TESTING, AdSetRole.RETARGETING):
+        if tiers.get(role, 0) < minimum:
+            tiers[AdSetRole.PROSPECTING] += tiers.pop(role)
+    return tiers
+
+
 def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> list[UUID]:
     account = session.get(Account, account_id)
     profile = session.scalar(select(BusinessProfile).where(BusinessProfile.account_id == account_id))
@@ -222,13 +264,11 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
     page_id = (meta_conn.page_id if meta_conn else None) or "MOCKPAGE"
     daily_budget = profile.daily_budget_paise if profile else 50000
 
-    # CTWA destination: in APP_DESTINATION mode the ad sends leads straight to the owner's
-    # existing WhatsApp number (no Cloud API / WABA needed — the fastest go-live path).
+    # CTWA destination: in APP_DESTINATION mode the ad opens the owner's existing WhatsApp
+    # number (no Cloud API / WABA needed — the fastest go-live path).
     wa_conn = session.scalar(
         select(WhatsAppConnection).where(WhatsAppConnection.account_id == account_id))
-    cta = {"call_to_action": {"type": "WHATSAPP_MESSAGE"}}
-    if wa_conn and wa_conn.mode == "APP_DESTINATION" and wa_conn.display_phone:
-        cta["call_to_action"]["value"] = {"app_destination_phone": wa_conn.display_phone}
+    cta = _ctwa_cta(wa_conn, page_id)
 
     # Idempotency: if an ACTIVE campaign already exists, do not relaunch.
     existing = session.scalar(
@@ -238,7 +278,9 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
     if existing is not None:
         return [existing.id]
 
-    # Approval gate: only APPROVED_FOR_LAUNCH (compliant) creatives go live.
+    # Approval gate: only APPROVED_FOR_LAUNCH (compliant) creatives go live. Adapters
+    # without a video upload path launch image/text ads only — never a degraded video ad.
+    meta = meta_adapter_for_account(session, account_id)
     creatives = session.scalars(
         select(Creative).where(
             Creative.account_id == account_id,
@@ -246,6 +288,8 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
             Creative.approval_status == ApprovalState.APPROVED_FOR_LAUNCH.value,
         )
     ).all()
+    if not meta.supports_video:
+        creatives = [c for c in creatives if c.format != CreativeFormat.VIDEO_9_16.value]
     if not creatives:
         raise ValueError("no approved creatives to launch (awaiting owner approval)")
     creative_ids = [str(c.id) for c in creatives]
@@ -257,30 +301,62 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
                  "daily_budget_paise": daily_budget, "creative_ids": creative_ids},
     )
 
-    meta = get_meta_adapter()
     # Spend guard: planned daily spend must never exceed the account budget.
     check_daily_spend(proposed_daily_paise=daily_budget, account_daily_budget_paise=daily_budget)
+    tiers = _budget_tiers(daily_budget)
 
     objective = plan.campaigns[0].objective if plan.campaigns else "OUTCOME_LEADS"
-    meta_campaign_id = meta.create_campaign(
-        ad_account_id=ad_account_id, name=f"{account.business_name} CTWA", objective=objective,
+    # Name is the cross-system idempotency key: unique per account, stable across retries.
+    campaign_name = f"{account.business_name} CTWA {str(account_id)[:8]}"
+
+    # Crash-safety: a partial launch leaves an IN_REVIEW row (committed independently
+    # below) — resume it instead of stacking a duplicate campaign on Meta.
+    campaign = session.scalar(
+        select(Campaign).where(Campaign.account_id == account_id,
+                               Campaign.status == CampaignStatus.IN_REVIEW.value)
     )
-    campaign = Campaign(
-        tenant_id=tenant_id, account_id=account_id, meta_campaign_id=meta_campaign_id,
-        objective=objective, channel="META_CTWA", status=CampaignStatus.IN_REVIEW.value,
-        daily_budget_paise=daily_budget, strategy={"split": "70/20/10"},
-    )
-    session.add(campaign)
-    session.flush()
+    if campaign is not None:
+        meta_campaign_id = campaign.meta_campaign_id
+    else:
+        # Even the local row can be lost (crash before commit) — ask Meta first. Campaigns
+        # are created PAUSED and only activated at the very end, so an orphan never spends.
+        meta_campaign_id = (
+            meta.find_campaign_by_name(ad_account_id=ad_account_id, name=campaign_name)
+            or meta.create_campaign(ad_account_id=ad_account_id, name=campaign_name,
+                                    objective=objective)
+        )
+        # Claim the launch in its own committed transaction so a crash mid-adsets can be
+        # resumed (the caller's session would roll this back with everything else).
+        from leadpilot.core.db import tenant_session as _claim_session
+
+        with _claim_session(tenant_id) as claim:
+            claim.add(Campaign(
+                tenant_id=tenant_id, account_id=account_id, meta_campaign_id=meta_campaign_id,
+                objective=objective, channel="META_CTWA", status=CampaignStatus.IN_REVIEW.value,
+                daily_budget_paise=daily_budget, strategy={"split": "65/20/15"},
+            ))
+        campaign = session.scalar(
+            select(Campaign).where(Campaign.account_id == account_id,
+                                   Campaign.meta_campaign_id == meta_campaign_id))
 
     city = profile.service_area_city if profile else "Indore"
     radius = profile.service_radius_km if profile else 10
+    # Resume support: skip tiers that already exist locally or on Meta (matched by name).
+    existing_roles = {
+        a.role for a in session.scalars(
+            select(AdSet).where(AdSet.campaign_id == campaign.id)).all()
+    }
+    meta_adsets_by_name = {
+        a.get("name"): a.get("id")
+        for a in meta.list_adsets(meta_campaign_id=meta_campaign_id)
+    }
+
     # 3-tier structure: PROSPECTING (proven, 65%) + RETARGETING (visitors, 20%) +
     # TESTING (new creative in isolation, 15%). Testing winners graduate to prospecting.
-    roles = [AdSetRole.PROSPECTING, AdSetRole.RETARGETING, AdSetRole.TESTING]
-    split_total = sum(BUDGET_SPLIT[r] for r in roles)
-    for role in roles:
-        budget = daily_budget * BUDGET_SPLIT[role] // split_total
+    for role, budget in tiers.items():
+        if role.value in existing_roles:
+            continue
+        adset_name = f"{role.value} {city}"
         targeting = {
             "geo_locations": {"cities": [{"name": city, "radius": radius, "distance_unit": "kilometer"}]},
             "age_min": 18, "age_max": 55, "_role": role.value,
@@ -288,15 +364,15 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
         if role == AdSetRole.RETARGETING:
             # Warm audience: people who engaged with the ads / clicked to WhatsApp.
             targeting["custom_audiences"] = [{"type": "ENGAGEMENT", "lookback_days": 30}]
-        meta_adset_id = meta.create_adset(
+        meta_adset_id = meta_adsets_by_name.get(adset_name) or meta.create_adset(
             ad_account_id=ad_account_id, campaign_id=meta_campaign_id,
-            name=f"{role.value} {city}", targeting=targeting, daily_budget_paise=budget,
+            name=adset_name, targeting=targeting, daily_budget_paise=budget,
             optimization_goal="CONVERSATIONS", destination_type="WHATSAPP",
             promoted_object={"page_id": page_id},
         )
         adset = AdSet(
             tenant_id=tenant_id, account_id=account_id, campaign_id=campaign.id,
-            meta_adset_id=meta_adset_id, name=f"{role.value} {city}", role=role.value,
+            meta_adset_id=meta_adset_id, name=adset_name, role=role.value,
             targeting=targeting, budget_paise=budget, status=CampaignStatus.ACTIVE.value,
         )
         session.add(adset)
@@ -336,6 +412,23 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
 
 # ─────────────────────────── Optimizer: optimize toward CPQL ───────────────────────────
 
+def _upsert_daily_insight(session: Session, *, tenant_id: UUID, account_id: UUID,
+                          level: str, ref_id: UUID, day: datetime, **fields) -> None:
+    """One AdInsight row per (level, ref, day) — hourly optimizer passes refresh it in
+    place, so summing a day never overcounts."""
+    existing = session.scalar(
+        select(AdInsight).where(
+            AdInsight.account_id == account_id, AdInsight.level == level,
+            AdInsight.ref_id == ref_id, AdInsight.date >= day)
+    )
+    if existing is None:
+        session.add(AdInsight(tenant_id=tenant_id, account_id=account_id, level=level,
+                              ref_id=ref_id, date=day, **fields))
+    else:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+
+
 def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> list[dict]:
     account = session.get(Account, account_id)
     target_cpql = account.target_cpql_paise or 20000
@@ -346,7 +439,15 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
     if not ad_sets:
         return []
 
-    meta = get_meta_adapter()
+    meta = meta_adapter_for_account(session, account_id)
+    # Blind mode: on the own-number (APP_DESTINATION) path the qualification chats happen
+    # on the client's phone — platform-side lead counts can be zero while the client's
+    # WhatsApp is full. Lead-based kill rules would murder healthy campaigns, so they are
+    # disabled; spend caps and frequency-based fatigue (real signals) stay on.
+    wa_conn = session.scalar(
+        select(WhatsAppConnection).where(WhatsAppConnection.account_id == account_id))
+    blind = (not settings.mock_meta) and wa_conn is not None \
+        and wa_conn.mode == "APP_DESTINATION"
     guard = GuardrailEngine(session, tenant_id=tenant_id, account_id=account_id)
     rows = meta.get_insights(level=InsightLevel.ADSET.value,
                              meta_ids=[a.meta_adset_id for a in ad_sets if a.meta_adset_id])
@@ -402,19 +503,23 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
             continue
         cpl = (row.spend_paise // row.leads) if row.leads else None
         cpql = (row.spend_paise // qualified_today) if qualified_today else None
-        # Persist the insight (denormalized CPL/CPQL).
-        session.add(AdInsight(
-            tenant_id=tenant_id, account_id=account_id, level=InsightLevel.ADSET.value,
-            ref_id=adset.id, date=_now(), spend_paise=row.spend_paise, impressions=row.impressions,
-            clicks=row.clicks, ctr=row.ctr, frequency=row.frequency, leads=row.leads,
+        # Persist the insight as a DAILY SNAPSHOT (upsert on adset+day): the optimizer runs
+        # hourly with cumulative today-numbers — appending would overcount spend ~24× in
+        # every consumer (reports, dashboard).
+        _upsert_daily_insight(
+            session, tenant_id=tenant_id, account_id=account_id,
+            level=InsightLevel.ADSET.value, ref_id=adset.id, day=today,
+            spend_paise=row.spend_paise, impressions=row.impressions, clicks=row.clicks,
+            ctr=row.ctr, frequency=row.frequency, leads=row.leads,
             qualified_leads=qualified_today, cpl_paise=cpl or 0, cpql_paise=cpql or 0,
-        ))
+        )
 
         # Anomaly guard first (PRD §4.5.5): pause + escalate, overrides the rule engine.
+        # Lead-based anomaly rules are meaningless in blind mode (see above).
         anomaly = guard.record(check_adset_anomaly(
             spend_paise=row.spend_paise, leads=row.leads, cpl_paise=cpl,
-            target_cpql_paise=target_cpql))
-        if not anomaly.ok:
+            target_cpql_paise=target_cpql)) if not blind else None
+        if anomaly is not None and not anomaly.ok:
             action, reason, after = OptimizationAction.PAUSE, f"anomaly:{anomaly.detail['reason']}", {}
             meta.set_status(level="ADSET", meta_id=adset.meta_adset_id, status="PAUSED")
             adset.status = CampaignStatus.PAUSED.value
@@ -423,7 +528,8 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
                 tenant_id=tenant_id, account_id=account_id, kind=NotificationKind.ANOMALY.value,
                 title="Paused an ad set", body="Saathi paused an underperforming ad set and is reviewing."))
         else:
-            action, reason, after = _decide(adset, row, cpl, target_cpql, total_budget)
+            action, reason, after = _decide(adset, row, cpl, target_cpql, total_budget,
+                                            blind=blind)
             if action == OptimizationAction.PAUSE:
                 meta.set_status(level="ADSET", meta_id=adset.meta_adset_id, status="PAUSED")
                 adset.status = CampaignStatus.PAUSED.value
@@ -481,17 +587,33 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
             decisions.append({"adset": str(adset.id), "action": "REALLOCATE",
                               "reason": "reallocate_to_winner", "cpl_paise": None})
 
+    # Daily ACCOUNT rollup — the single source the dashboard, settings screen and the
+    # monthly-cap gate read. Refreshed on every optimizer pass so "today's spend" is live.
+    total_leads = sum(r.leads for r in rows)
+    total_spend = sum(r.spend_paise for r in rows)
+    _upsert_daily_insight(
+        session, tenant_id=tenant_id, account_id=account_id,
+        level=InsightLevel.ACCOUNT.value, ref_id=account_id, day=today,
+        spend_paise=total_spend, impressions=sum(r.impressions for r in rows),
+        clicks=sum(r.clicks for r in rows), ctr=0.0, frequency=0.0,
+        leads=total_leads, qualified_leads=qualified_today,
+        cpl_paise=(total_spend // total_leads) if total_leads else 0,
+        cpql_paise=(total_spend // qualified_today) if qualified_today else 0,
+    )
+
     if account.phase == AccountPhase.LIVE.value:
         account.phase = AccountPhase.OPTIMIZING.value
     log.info("optimize_done", account=str(account_id), decisions=len(decisions))
     return decisions
 
 
-def _decide(adset: AdSet, row, cpl, target_cpql, total_budget):
+def _decide(adset: AdSet, row, cpl, target_cpql, total_budget, *, blind: bool = False):
     """Kill-losers / scale-winners / refresh-fatigue rule engine. All bounds are
     deterministic — the guardrails cap what any decision can move (§6.5.1)."""
-    # Kill: real spend with zero conversions.
-    if row.leads == 0 and row.spend_paise >= ZERO_CONV_SPEND_MULTIPLE * target_cpql:
+    # Kill: real spend with zero conversions. Skipped in blind mode — zero platform-side
+    # leads on the own-number path usually means we can't see them, not that none exist.
+    if (not blind and row.leads == 0
+            and row.spend_paise >= ZERO_CONV_SPEND_MULTIPLE * target_cpql):
         return OptimizationAction.PAUSE, "zero_conversions", {"status": "PAUSED"}
     # Kill: runaway cost per lead.
     if (cpl is not None and cpl > HIGH_CPL_MULTIPLE * target_cpql
@@ -529,6 +651,8 @@ def rotate_fresh_creative(session: Session, *, tenant_id: UUID, account_id: UUID
     meta_conn = session.scalar(select(MetaConnection).where(MetaConnection.account_id == account_id))
     ad_account_id = (meta_conn.ad_account_id if meta_conn else None) or "MOCKACT"
     page_id = (meta_conn.page_id if meta_conn else None) or "MOCKPAGE"
+    wa_conn = session.scalar(
+        select(WhatsAppConnection).where(WhatsAppConnection.account_id == account_id))
 
     winners = [w.headline for w in retrieve_winning_creatives(
         session, account_id=account_id, query_text=angle.title, k=3) if w.headline]
@@ -552,10 +676,10 @@ def rotate_fresh_creative(session: Session, *, tenant_id: UUID, account_id: UUID
     session.flush()
     embed_creative(session, creative)
 
-    meta = get_meta_adapter()
+    meta = meta_adapter_for_account(session, account_id)
     meta_creative_id = meta.create_creative(
         ad_account_id=ad_account_id, page_id=page_id, message=variant.primary_text,
-        headline=variant.headline, link_or_cta={"call_to_action": {"type": "WHATSAPP_MESSAGE"}},
+        headline=variant.headline, link_or_cta=_ctwa_cta(wa_conn, page_id),
         image_url=image_url)
     meta_ad_id = meta.create_ad(ad_account_id=ad_account_id, adset_id=testing.meta_adset_id,
                                 creative_meta_id=meta_creative_id, name=f"refresh-{variant.headline}"[:60])
@@ -571,9 +695,12 @@ def rotate_fresh_creative(session: Session, *, tenant_id: UUID, account_id: UUID
 def run_report(session: Session, *, tenant_id: UUID, account_id: UUID) -> str:
     account = session.get(Account, account_id)
     today = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # Sum ADSET-level daily snapshots only — mixing levels (or the pre-fix hourly appends)
+    # would tell a paying owner an inflated spend number.
     spend = session.scalar(
         select(func.coalesce(func.sum(AdInsight.spend_paise), 0))
-        .where(AdInsight.account_id == account_id, AdInsight.date >= today)
+        .where(AdInsight.account_id == account_id, AdInsight.date >= today,
+               AdInsight.level == InsightLevel.ADSET.value)
     ) or 0
     enquiries = session.scalar(
         select(func.count(Lead.id)).where(Lead.account_id == account_id, Lead.created_at >= today)
@@ -601,7 +728,21 @@ def run_report(session: Session, *, tenant_id: UUID, account_id: UUID) -> str:
         tenant_id=tenant_id, account_id=account_id, kind=NotificationKind.REPORT.value,
         title="Aaj ki report", body=out.message,
     ))
-    # In real mode this goes to the owner's WhatsApp via an approved template.
-    _ = get_whatsapp_adapter()
+    # WhatsApp delivery needs a Cloud-API number + approved template; when this account
+    # has one, send it there too. On the own-number path the operator digest
+    # (leadpilot.reporter.operator_digest) carries these summaries to the founder instead.
+    wa = session.scalar(
+        select(WhatsAppConnection).where(WhatsAppConnection.account_id == account_id))
+    owner_phone = session.scalar(
+        select(User.phone).where(User.account_id == account_id, User.role == "OWNER"))
+    if (wa is not None and wa.mode == "CLOUD_API" and wa.phone_number_id
+            and owner_phone and not settings.mock_whatsapp):
+        try:  # pragma: no cover - requires live WhatsApp creds
+            get_whatsapp_adapter().send_template(
+                phone_number_id=wa.phone_number_id, to_phone=owner_phone,
+                template_name="daily_report", language=account.default_language or "hi",
+                params=[out.message])
+        except Exception as exc:  # noqa: BLE001 - report must still land in-app
+            log.warning("report_wa_send_failed", account=str(account_id), error=str(exc)[:200])
     log.info("report_done", account=str(account_id))
     return out.message

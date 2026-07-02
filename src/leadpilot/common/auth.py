@@ -1,6 +1,7 @@
-"""JWT issue/verify for the owner/partner/admin surfaces."""
+"""JWT issue/verify for the owner/partner/admin surfaces + the OTP hash."""
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -9,6 +10,12 @@ import jwt
 from leadpilot.common.config import settings
 
 ALGO = "HS256"
+
+
+def hash_otp(code: str, salt: str) -> str:
+    """Salted OTP hash (per-row random salt defeats precomputation; the JWT secret is an
+    extra pepper). Shared by the auth router and the operator mint_login script."""
+    return hashlib.sha256(f"{salt}:{settings.jwt_secret}:{code}".encode()).hexdigest()
 
 
 def _now() -> datetime:

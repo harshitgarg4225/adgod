@@ -96,7 +96,7 @@ def seeded_client(seeded):
 
 def test_reallocation_and_promotion(seeded, monkeypatch):
     fake = _FakeMeta()
-    monkeypatch.setattr(pipeline, "get_meta_adapter", lambda: fake)
+    monkeypatch.setattr(pipeline, "meta_adapter_for_account", lambda s, a: fake)
 
     with tenant_session(DEMO_TENANT_ID) as s:
         camp = Campaign(tenant_id=DEMO_TENANT_ID, account_id=DEMO_ACCOUNT_ID,

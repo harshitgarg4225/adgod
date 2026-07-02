@@ -25,21 +25,32 @@ def _seed(s: str) -> int:
 
 
 class MockMetaAdapter(MetaAdapter):
-    def _new_id(self, kind: str, tag: str = "") -> str:
+    def _new_id(self, kind: str, tag: str = "", name: str = "", parent: str = "") -> str:
         n = next(_counter)
         mid = f"{kind}_{tag}{n}" if tag else f"{kind}_{n}"
-        CREATED[mid] = {"kind": kind, "status": "PAUSED"}
+        CREATED[mid] = {"kind": kind, "status": "PAUSED", "name": name, "parent": parent}
         return mid
 
     def create_campaign(self, *, ad_account_id, name, objective, status="PAUSED") -> str:
-        return self._new_id("camp")
+        return self._new_id("camp", name=name)
+
+    def find_campaign_by_name(self, *, ad_account_id, name) -> str | None:
+        for mid, meta in CREATED.items():
+            if meta.get("kind") == "camp" and meta.get("name") == name:
+                return mid
+        return None
+
+    def list_adsets(self, *, meta_campaign_id) -> list[dict]:
+        return [{"id": mid, "name": meta.get("name", "")}
+                for mid, meta in CREATED.items()
+                if meta.get("kind") == "adset" and meta.get("parent") == meta_campaign_id]
 
     def create_adset(
         self, *, ad_account_id, campaign_id, name, targeting, daily_budget_paise,
         optimization_goal, promoted_object, destination_type=None, status="PAUSED",
     ) -> str:
         role = (targeting or {}).get("_role", "PROSPECTING")
-        return self._new_id("adset", tag=f"{role}_")
+        return self._new_id("adset", tag=f"{role}_", name=name, parent=campaign_id)
 
     def create_creative(
         self, *, ad_account_id, page_id, message, headline, link_or_cta, image_url=None
@@ -74,6 +85,9 @@ class MockMetaAdapter(MetaAdapter):
                 clicks=clicks, ctr=round(ctr, 4), frequency=round(frequency, 2), leads=leads,
             ))
         return rows
+
+    def get_form_leads(self, *, page_id, since_iso=None) -> list[dict]:
+        return []  # mock has no Instant Forms; the polling task no-ops cleanly
 
     def search_ad_library(self, *, query, country="IN", limit=10) -> list[dict]:
         return [

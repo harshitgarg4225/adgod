@@ -39,7 +39,7 @@ def _connected_full_autopilot_account() -> tuple[str, str, str]:
                       target_cpql_paise=20000, created_via="test"))
         s.add(BusinessProfile(tenant_id=tid, account_id=aid, offer="NEET coaching, small batches",
                               service_area_city="Indore", service_radius_km=10,
-                              daily_budget_paise=50000))
+                              daily_budget_paise=100000))
         s.add(MetaConnection(tenant_id=tid, account_id=aid, meta_business_id="1", ad_account_id="1",
                              page_id="1", status="ACTIVE"))
         s.add(WhatsAppConnection(tenant_id=tid, account_id=aid, mode="CLOUD_API",
@@ -94,7 +94,7 @@ class _FakeMeta:
 
 def test_one_stop_optimization_loop(seeded, monkeypatch):
     """The refresh-and-reallocate loop keeps leads flowing after launch."""
-    monkeypatch.setattr(pipeline, "get_meta_adapter", lambda: _FakeMeta())
+    monkeypatch.setattr(pipeline, "meta_adapter_for_account", lambda s, a: _FakeMeta())
     tid, aid, _ = _connected_full_autopilot_account()
     with tenant_session(tid) as s:
         camp = Campaign(tenant_id=tid, account_id=aid, meta_campaign_id="c", status="ACTIVE",

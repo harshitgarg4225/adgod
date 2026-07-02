@@ -94,6 +94,43 @@ def list_leads(
         ]
 
 
+class LeadCreateIn(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    wa_phone: str = Field(min_length=5, max_length=20)
+    intent_summary: str | None = Field(default=None, max_length=2000)
+    score: str | None = None
+    status: str | None = None
+
+
+@router.post("/accounts/{account_id}/leads", status_code=201)
+def create_lead(
+    account_id: str, body: LeadCreateIn, principal: Principal = Depends(current_principal)
+) -> dict:
+    """Manual lead entry — essential on the own-number (APP_DESTINATION) path, where
+    enquiries land in the owner's WhatsApp and never touch our servers. Logging them here
+    is what makes the inbox, reports, CPQL and ROAS real. Idempotent per phone+account
+    (re-adding an existing phone returns the existing lead)."""
+    require_account_access(principal, account_id)
+    if body.score and body.score not in {s.value for s in LeadScore}:
+        raise ValidationError(f"Invalid score: {body.score}")
+    if body.status and body.status not in {s.value for s in LeadStatus}:
+        raise ValidationError(f"Invalid status: {body.status}")
+    with tenant_session(principal.tenant_id) as session:
+        existing = session.scalar(select(Lead).where(
+            Lead.account_id == account_id, Lead.wa_phone == body.wa_phone))
+        if existing is not None:
+            return {"id": str(existing.id), "created": False}
+        lead = Lead(
+            tenant_id=principal.tenant_id, account_id=account_id, source_channel="MANUAL",
+            wa_phone=body.wa_phone, name=body.name, intent_summary=body.intent_summary,
+            score=body.score, status=body.status or LeadStatus.NEW.value,
+            first_msg_at=datetime.now(UTC),
+        )
+        session.add(lead)
+        session.flush()
+        return {"id": str(lead.id), "created": True}
+
+
 @router.get("/leads/{lead_id}", response_model=LeadDetailOut)
 def get_lead(lead_id: str, principal: Principal = Depends(current_principal)) -> LeadDetailOut:
     with tenant_session(principal.tenant_id) as session:
@@ -238,6 +275,10 @@ def home(account_id: str, principal: Principal = Depends(current_principal)) -> 
                 Notification.account_id == account_id, Notification.read_at.is_(None)
             )
         ) or 0)
+        wa_mode = session.scalar(
+            select(WhatsAppConnection.mode).where(
+                WhatsAppConnection.account_id == account_id)
+        )
 
     phase = account.phase if account else AccountPhase.SIGNED_UP.value
     paused = phase == AccountPhase.PAUSED.value
@@ -256,7 +297,7 @@ def home(account_id: str, principal: Principal = Depends(current_principal)) -> 
         paused=paused,
         daily_budget_paise=daily_budget,
         daily_budget_display=format_paise(daily_budget),
-        saathi_status=_saathi_status(phase, paused, int(qualified_today)),
+        saathi_status=_saathi_status(phase, paused, int(qualified_today), wa_mode),
         unread_notifications=unread,
         spend_trend=spend_trend,
     )
@@ -273,7 +314,8 @@ def _phase_status(phase: str) -> list[str]:
     }.get(phase, [phase.replace("_", " ").title()])
 
 
-def _saathi_status(phase: str, paused: bool, qualified_today: int) -> str:
+def _saathi_status(phase: str, paused: bool, qualified_today: int,
+                   wa_mode: str | None = None) -> str:
     if paused:
         return "Your ads are paused. Resume whenever you're ready."
     if phase in (AccountPhase.SIGNED_UP.value, AccountPhase.ONBOARDING.value):
@@ -282,6 +324,11 @@ def _saathi_status(phase: str, paused: bool, qualified_today: int) -> str:
         return "Your ads are in review — I'll start them the moment they're approved."
     if qualified_today:
         return f"I've qualified {qualified_today} lead(s) for you today. Keep going! 🎉"
+    if wa_mode == "APP_DESTINATION":
+        # Own-number mode: chats land in the owner's WhatsApp, not here — never claim
+        # we're qualifying what we cannot see.
+        return ("Your ads send customers straight to your WhatsApp. "
+                "Log enquiries here so I can track your results.")
     return "I'm watching your ads 24×7 and qualifying every lead that comes in."
 
 

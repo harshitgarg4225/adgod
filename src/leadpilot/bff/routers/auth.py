@@ -6,7 +6,6 @@ send is a no-op and the code is returned as `dev_code` for local/test use.
 """
 from __future__ import annotations
 
-import hashlib
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -23,10 +22,16 @@ from leadpilot.bff.schemas import (
     TokenOut,
     UserOut,
 )
-from leadpilot.common.auth import decode_token, issue_access_token, issue_refresh_token
+from leadpilot.common.auth import (
+    decode_token,
+    hash_otp,
+    issue_access_token,
+    issue_refresh_token,
+)
 from leadpilot.common.config import settings
-from leadpilot.common.errors import AuthError
+from leadpilot.common.errors import AuthError, ValidationError
 from leadpilot.common.logging import get_logger
+from leadpilot.common.phone import normalize_phone
 from leadpilot.common.ratelimit import enforce
 from leadpilot.common.requtil import client_ip
 from leadpilot.core.db import platform_session, tenant_session
@@ -40,25 +45,28 @@ log = get_logger("auth")
 OTP_TTL_MIN = 5
 
 
-def _hash(code: str, salt: str) -> str:
-    # Per-row random salt defeats precomputation across the whole table; the JWT secret is
-    # kept as an extra pepper (defence in depth).
-    return hashlib.sha256(f"{salt}:{settings.jwt_secret}:{code}".encode()).hexdigest()
-
-
 @router.post("/otp/request", status_code=202)
 def otp_request(req: OtpRequest, request: Request) -> dict:
+    # One canonical phone form (+91XXXXXXXXXX) — a provisioned owner must match the same
+    # person logging in regardless of how they typed their number.
+    phone = normalize_phone(req.phone)
     # Throttle OTP sends: per phone and per source IP (anti-abuse / SMS-cost control).
     # fail_closed so an attacker can't defeat the SMS-cost limit by knocking Redis over.
-    enforce("otp_request", req.phone, limit=5, window_s=600, fail_closed=True)
+    enforce("otp_request", phone, limit=5, window_s=600, fail_closed=True)
     enforce("otp_request_ip", client_ip(request), limit=20, window_s=600, fail_closed=True)
     code = f"{secrets.randbelow(1_000_000):06d}"
     salt = secrets.token_hex(16)
     with platform_session() as s:
-        s.add(AuthOtp(phone=req.phone, code_hash=_hash(code, salt), salt=salt,
+        s.add(AuthOtp(phone=phone, code_hash=hash_otp(code, salt), salt=salt,
                       expires_at=datetime.now(UTC) + timedelta(minutes=OTP_TTL_MIN)))
-    get_otp_provider().send(phone=req.phone, code=code)
-    log.info("otp_requested", phone=req.phone)
+    try:
+        get_otp_provider().send(phone=phone, code=code)
+    except Exception as exc:  # noqa: BLE001 - surface a clean, retryable error to the UI
+        log.error("otp_send_failed", phone=phone, error=str(exc)[:200])
+        raise ValidationError(
+            "We couldn't send the code right now — please try again in a minute."
+        ) from exc
+    log.info("otp_requested", phone=phone)
     resp = {"status": "sent"}
     if settings.mock_otp and not settings.is_production:
         resp["dev_code"] = code  # surfaced only in non-prod mock mode
@@ -97,22 +105,23 @@ def _signup(phone: str) -> User:
 
 @router.post("/otp/verify", response_model=TokenOut)
 def otp_verify(req: OtpVerify) -> TokenOut:
+    phone = normalize_phone(req.phone)
     # Throttle verify attempts per phone to blunt OTP brute force (fail-closed on outage).
-    enforce("otp_verify", req.phone, limit=10, window_s=600, fail_closed=True)
+    enforce("otp_verify", phone, limit=10, window_s=600, fail_closed=True)
     now = datetime.now(UTC)
     with platform_session() as s:
         otp = s.scalar(
-            select(AuthOtp).where(AuthOtp.phone == req.phone, AuthOtp.consumed_at.is_(None),
+            select(AuthOtp).where(AuthOtp.phone == phone, AuthOtp.consumed_at.is_(None),
                                   AuthOtp.expires_at > now)
             .order_by(AuthOtp.created_at.desc())
         )
-        if otp is None or otp.code_hash != _hash(req.code, otp.salt or ""):
+        if otp is None or otp.code_hash != hash_otp(req.code, otp.salt or ""):
             raise AuthError("Invalid or expired code", user_message_key="error.validation")
         otp.consumed_at = now
 
     # Create-on-first-login: a verified but unknown phone becomes a new owner account.
     # This is the self-serve signup path AND avoids leaking which numbers already exist.
-    user = _user_by_phone(req.phone) or _signup(req.phone)
+    user = _user_by_phone(phone) or _signup(phone)
 
     access = issue_access_token(
         user_id=str(user.id), tenant_id=str(user.tenant_id),

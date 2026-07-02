@@ -154,6 +154,31 @@ async def meta_leadgen(request: Request) -> JSONResponse:
     return JSONResponse({"accepted": accepted}, status_code=200)
 
 
+def _fetch_lead_fields(page_id: str, leadgen_id: str) -> tuple[str | None, str | None]:
+    """Meta's real leadgen webhook payload carries only ids — the contact details must be
+    fetched from Graph with the page's account token. Failure is non-fatal: the polling
+    task (leadpilot.leads.poll_form_leads) backfills field_data on its next pass."""
+    if settings.mock_meta:
+        return None, None
+    try:  # pragma: no cover - requires live Meta creds
+        from sqlalchemy import select
+
+        from leadpilot.core.db import platform_session
+        from leadpilot.core.models import MetaConnection
+        from leadpilot.integrations.meta import meta_adapter_for_account
+
+        with platform_session() as s:
+            conn = s.scalar(select(MetaConnection).where(MetaConnection.page_id == page_id))
+            if conn is None:
+                return None, None
+            adapter = meta_adapter_for_account(s, conn.account_id)
+        detail = adapter.get_lead_details(leadgen_id=leadgen_id)
+        return _extract_lead_fields(detail)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("leadgen_detail_fetch_failed", leadgen_id=leadgen_id, error=str(exc)[:200])
+        return None, None
+
+
 def _process_leadgen(payload: dict) -> int:
     accepted = 0
     for entry in payload.get("entry", []):
@@ -169,7 +194,11 @@ def _process_leadgen(payload: dict) -> int:
                 tenant_id=None, account_id=None, payload=v)
             if event_id is None:
                 continue  # duplicate
+            # field_data in the payload only exists in test fixtures; real deliveries
+            # require a Graph fetch for the name/phone.
             name, phone = _extract_lead_fields(v)
+            if name is None and phone is None:
+                name, phone = _fetch_lead_fields(page_id, leadgen_id)
             capture_leadgen(page_id=page_id, leadgen_id=leadgen_id, name=name, phone=phone)
             accepted += 1
     return accepted

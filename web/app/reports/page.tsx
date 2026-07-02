@@ -59,8 +59,10 @@ export default function Reports() {
   if (message == null || !insights || !decisions)
     return <Loading label={t("reports.preparing", "Preparing your report…")} />;
 
-  const spend = insights.reduce((s, i) => s + i.spend_paise, 0);
-  const leads = insights.reduce((s, i) => s + i.leads, 0);
+  // Sum ADSET rows only — ACCOUNT rows are rollups of the same money and would double it.
+  const adsetRows = insights.filter((i) => i.level === "ADSET");
+  const spend = adsetRows.reduce((s, i) => s + i.spend_paise, 0);
+  const leads = adsetRows.reduce((s, i) => s + i.leads, 0);
   const cpl = leads ? Math.round(spend / leads) : null;
 
   const adsets = insights

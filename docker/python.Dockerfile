@@ -14,10 +14,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps first for layer caching.
-COPY pyproject.toml README.md ./
+# Install pinned deps first (layer caching + reproducible deploys: the real-provider
+# SDKs are locked, so a deploy can never silently pull an untested version).
+COPY requirements.lock pyproject.toml README.md ./
+RUN pip install --upgrade pip && pip install -r requirements.lock
 COPY src ./src
-RUN pip install --upgrade pip && pip install ".[llm,storage]"
+RUN pip install --no-deps ".[llm,storage]"
 
 # App code (migrations, etc.)
 COPY alembic.ini ./

@@ -67,7 +67,15 @@ class LLMProvider:
         self.mock = mock
 
     def model_for(self, role: str) -> str:
-        return ROLE_MODELS.get(role, settings.llm_reasoning_model)
+        model = ROLE_MODELS.get(role, settings.llm_reasoning_model)
+        # Key-aware routing: never pick a vendor whose key is missing. A half-configured
+        # deploy (one key) still runs every role instead of 401ing on the other vendor.
+        vendor = _vendor(model)
+        if vendor == "claude" and not settings.anthropic_api_key and settings.gemini_api_key:
+            return "gemini-2.5-flash"
+        if vendor == "gemini" and not settings.gemini_api_key and settings.anthropic_api_key:
+            return settings.llm_reasoning_model
+        return model
 
     def generate(
         self,
@@ -126,12 +134,30 @@ class LLMProvider:
         )
         wrapped_user = f"<untrusted_input>\n{user}\n</untrusted_input>"
         full_system = f"{system}\n\n{schema_hint}{guard}"
-        if vendor == "claude":
-            text, out_tokens = self._call_claude(model, full_system, wrapped_user)
-        elif vendor == "gemini":
-            text, out_tokens = self._call_gemini(model, full_system, wrapped_user, temperature)
-        else:  # pragma: no cover - defensive
-            raise RuntimeError(f"No real provider for model {model}")
+        try:
+            if vendor == "claude":
+                text, out_tokens = self._call_claude(model, full_system, wrapped_user)
+            elif vendor == "gemini":
+                text, out_tokens = self._call_gemini(model, full_system, wrapped_user, temperature)
+            else:  # pragma: no cover - defensive
+                raise RuntimeError(f"No real provider for model {model}")
+        except Exception as exc:  # pragma: no cover - requires live keys
+            # Cross-vendor fallback: an outage/model retirement on one vendor must not
+            # take down the Closer hot path when the other vendor's key exists.
+            fallback = None
+            if vendor == "claude" and settings.gemini_api_key:
+                fallback = "gemini-2.5-flash"
+            elif vendor == "gemini" and settings.anthropic_api_key:
+                fallback = settings.llm_reasoning_model
+            if fallback is None:
+                raise
+            log.warning("llm_vendor_fallback", failed_model=model, fallback=fallback,
+                        error=str(exc)[:200])
+            if _vendor(fallback) == "claude":
+                text, out_tokens = self._call_claude(fallback, full_system, wrapped_user)
+            else:
+                text, out_tokens = self._call_gemini(fallback, full_system, wrapped_user,
+                                                     temperature)
         parsed = response_model.model_validate_json(_extract_json(text))
         return parsed, out_tokens
 

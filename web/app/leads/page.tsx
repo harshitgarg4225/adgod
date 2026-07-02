@@ -8,6 +8,7 @@ import type { LeadListItem } from "@/lib/types";
 import { useT } from "@/lib/i18n";
 import {
   BottomNav,
+  Button,
   EmptyState,
   ErrorState,
   Icon,
@@ -15,6 +16,7 @@ import {
   ScoreBadge,
   SkeletonCard,
   TopBar,
+  useToast,
 } from "@/components/ui";
 
 type Filter = { key: string; en: string; score?: string; status?: string };
@@ -22,10 +24,39 @@ type Filter = { key: string; en: string; score?: string; status?: string };
 export default function LeadsInbox() {
   const router = useRouter();
   const t = useT();
+  const toast = useToast();
   const [leads, setLeads] = useState<LeadListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
+  // Manual entry — on the own-number path enquiries land in the owner's WhatsApp, so
+  // logging them here is what makes the inbox and reports real.
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newNote, setNewNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function addLead() {
+    const account = getUser()?.account_id;
+    if (!account || !newPhone.trim()) return;
+    setSaving(true);
+    try {
+      await api.createLead(account, {
+        name: newName.trim() || undefined,
+        wa_phone: newPhone.trim(),
+        intent_summary: newNote.trim() || undefined,
+      });
+      setAdding(false);
+      setNewName(""); setNewPhone(""); setNewNote("");
+      toast.show(t("leads.added", "Lead added"), "success");
+      load();
+    } catch (e: any) {
+      toast.show(e.userMessage || t("common.somethingWrong", "Could not add."), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const filters: Filter[] = [
     { key: "all", en: "All" },
@@ -67,15 +98,59 @@ export default function LeadsInbox() {
       <TopBar
         title={t("nav.leads", "Leads")}
         right={
-          <Link
-            href="/bookings"
-            aria-label={t("bookings.title", "Bookings")}
-            className="flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-slate-100"
-          >
-            <Icon name="clock" />
-          </Link>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setAdding(true)}
+              aria-label={t("leads.add", "Add lead")}
+              className="flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-slate-100"
+            >
+              <Icon name="plus" />
+            </button>
+            <Link
+              href="/bookings"
+              aria-label={t("bookings.title", "Bookings")}
+              className="flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-slate-100"
+            >
+              <Icon name="clock" />
+            </Link>
+          </div>
         }
       />
+
+      {adding && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setAdding(false)}>
+          <div
+            className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="pb-3 text-lg font-semibold">{t("leads.add", "Add lead")}</h2>
+            <div className="space-y-3">
+              <input
+                value={newPhone}
+                onChange={(e) => setNewPhone(e.target.value)}
+                placeholder={t("leads.addPhone", "WhatsApp number *")}
+                inputMode="tel"
+                className="w-full rounded-xl border border-slate-200 bg-white py-3 px-4 text-base focus:border-brand"
+              />
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder={t("leads.addName", "Name")}
+                className="w-full rounded-xl border border-slate-200 bg-white py-3 px-4 text-base focus:border-brand"
+              />
+              <input
+                value={newNote}
+                onChange={(e) => setNewNote(e.target.value)}
+                placeholder={t("leads.addNote", "What do they want? (optional)")}
+                className="w-full rounded-xl border border-slate-200 bg-white py-3 px-4 text-base focus:border-brand"
+              />
+              <Button fullWidth loading={saving} disabled={!newPhone.trim()} onClick={addLead}>
+                {t("leads.addSave", "Save lead")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <div className="px-4 pt-3">
@@ -121,7 +196,10 @@ export default function LeadsInbox() {
         ) : leads.length === 0 ? (
           <EmptyState
             title={t("leads.emptyTitle", "No leads here yet")}
-            hint={t("leads.emptyHint", "As Saathi qualifies leads, they'll show up here.")}
+            hint={t(
+              "leads.emptyHint",
+              "Leads from your ads open in your WhatsApp — log them with + so Saathi can track your results."
+            )}
             icon="leads"
           />
         ) : (

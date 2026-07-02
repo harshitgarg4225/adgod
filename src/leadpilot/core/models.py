@@ -206,6 +206,8 @@ class Lead(Base, TimestampMixin):
     source_channel: Mapped[str] = mapped_column(String(20), default="META_CTWA")
     source_campaign_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     source_creative_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # Meta Instant-Form lead id — dedup key for webhook + polling intake (never a phone).
+    leadgen_id: Mapped[str | None] = mapped_column(String(60), index=True)
     wa_phone: Mapped[str] = mapped_column(String(20), nullable=False)
     name: Mapped[str | None] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="NEW")

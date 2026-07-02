@@ -15,7 +15,9 @@ from leadpilot.bff.routers.settings import month_to_date_spend
 from leadpilot.common.config import settings
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.core.db import tenant_session
+from leadpilot.core.enums import AccountPhase
 from leadpilot.core.models import (
+    Account,
     AdInsight,
     Angle,
     Approval,
@@ -242,14 +244,16 @@ def list_decisions(account_id: str, principal: Principal = Depends(current_princ
 @router.get("/accounts/{account_id}/insights")
 def insights(
     account_id: str, limit: int = Query(default=50, le=200),
+    level: str | None = Query(default=None),
     principal: Principal = Depends(current_principal),
 ) -> list[dict]:
     require_account_access(principal, account_id)
     with tenant_session(principal.tenant_id) as s:
-        rows = s.scalars(
-            select(AdInsight).where(AdInsight.account_id == account_id)
-            .order_by(AdInsight.date.desc()).limit(limit)
-        ).all()
+        stmt = select(AdInsight).where(AdInsight.account_id == account_id)
+        if level:
+            # Mixing levels double-counts (ACCOUNT rows are rollups of ADSET rows).
+            stmt = stmt.where(AdInsight.level == level)
+        rows = s.scalars(stmt.order_by(AdInsight.date.desc()).limit(limit)).all()
         return [{"level": r.level, "spend_paise": r.spend_paise, "impressions": r.impressions,
                  "clicks": r.clicks, "ctr": r.ctr, "frequency": r.frequency, "leads": r.leads,
                  "cpl_paise": r.cpl_paise, "cpql_paise": r.cpql_paise} for r in rows]
@@ -286,10 +290,18 @@ def decide_approval(
             return {"ok": False}
         require_account_access(principal, str(ap.account_id))
         ap.status = "APPROVED" if approve else "REJECTED"
-        # Approving a creative batch promotes its creatives to launch-ready.
+        # Approving a creative batch promotes its creatives to launch-ready AND moves the
+        # account out of PENDING_APPROVAL — otherwise the launch cron never picks it up
+        # and an approved account waits forever.
         if approve and ap.kind == "CREATIVE_BATCH":
+            promoted = 0
             for cid in ap.payload.get("creative_ids", []):
                 c = s.get(Creative, cid)
                 if c is not None and c.compliance_status == "PASSED":
                     c.approval_status = "APPROVED_FOR_LAUNCH"
+                    promoted += 1
+            if promoted:
+                account = s.get(Account, ap.account_id)
+                if account is not None and account.phase == AccountPhase.PENDING_APPROVAL.value:
+                    account.phase = AccountPhase.APPROVED.value
         return {"ok": True, "status": ap.status}

@@ -105,7 +105,8 @@ def progress_accounts() -> dict:
     with platform_session() as s:
         rows = s.execute(text(
             "SELECT tenant_id, id, phase FROM accounts WHERE deleted_at IS NULL AND phase IN "
-            "('SIGNED_UP','ONBOARDING','RESEARCHED','CREATIVE_GENERATED','APPROVED')"
+            "('SIGNED_UP','ONBOARDING','RESEARCHED','CREATIVE_GENERATED','PENDING_APPROVAL',"
+            "'APPROVED')"
         )).all()
 
     for tenant_id, account_id, phase in rows:
@@ -122,7 +123,10 @@ def progress_accounts() -> dict:
                 with tenant_session(tenant_id) as s:
                     pipeline.run_creative(s, tenant_id=tenant_id, account_id=account_id)
                 advanced["creative"] += 1
-            elif phase in ("CREATIVE_GENERATED", "APPROVED"):
+            elif phase in ("CREATIVE_GENERATED", "PENDING_APPROVAL", "APPROVED"):
+                # PENDING_APPROVAL counts too: once the owner has approved creatives (via
+                # API/UI) the account must launch autonomously even if no phase-advancing
+                # click ever happens — approved>0 is the actual gate.
                 with tenant_session(tenant_id) as s:
                     has_meta = s.scalar(
                         select(MetaConnection.id).where(MetaConnection.account_id == account_id))
@@ -139,9 +143,63 @@ def progress_accounts() -> dict:
         except Exception as exc:  # noqa: BLE001 - one stall must not block the fleet
             log.warning("progress_failed", account=str(account_id), phase=phase,
                         error=str(exc)[:200])
+            _record_progress_failure(tenant_id, account_id, phase, exc)
     if any(advanced.values()):
         log.info("progress_accounts", **advanced)
     return advanced
+
+
+def _record_progress_failure(tenant_id, account_id, phase: str, exc: Exception) -> None:
+    """A swallowed warning is how five clients silently stall at SIGNED_UP — surface every
+    progress failure in the admin anomaly queue instead."""
+    try:
+        from leadpilot.core.models import GuardrailEvent
+
+        with platform_session() as s:
+            s.add(GuardrailEvent(
+                tenant_id=tenant_id, account_id=account_id, type="ANOMALY", severity="ERROR",
+                detail={"reason": "pipeline_progress_failed", "phase": phase,
+                        "error": str(exc)[:300]},
+                action_taken="NONE"))
+    except Exception:  # noqa: BLE001 - reporting must never take down the cron
+        log.warning("progress_failure_unrecorded", account=str(account_id))
+
+
+@app.task(name="leadpilot.leads.poll_form_leads")
+def poll_form_leads() -> dict:
+    """Every 10 min: pull Instant-Form leads via Graph with each account's System User
+    token. Owned-asset reads need NO app review and NO webhook subscription — this is the
+    review-free automatic lead path (the leadgen webhook, when configured, just makes it
+    faster). Idempotent per lead via leadgen_id."""
+    if settings.mock_meta:
+        return {"captured": 0}
+    from leadpilot.core.webhooks import capture_leadgen
+    from leadpilot.integrations.meta import meta_adapter_for_account
+
+    captured = 0
+    with platform_session() as s:
+        conns = s.execute(text(
+            "SELECT tenant_id, account_id, page_id FROM meta_connections "
+            "WHERE page_id IS NOT NULL")).all()
+    for tenant_id, account_id, page_id in conns:
+        try:
+            with tenant_session(tenant_id) as s:
+                meta = meta_adapter_for_account(s, account_id)
+            for ld in meta.get_form_leads(page_id=page_id):
+                fields = {(f.get("name") or "").lower(): (f.get("values") or [None])[0]
+                          for f in ld.get("field_data", [])}
+                lead_id = capture_leadgen(
+                    page_id=page_id, leadgen_id=ld["leadgen_id"],
+                    name=fields.get("full_name") or fields.get("name"),
+                    phone=fields.get("phone_number") or fields.get("phone"))
+                if lead_id is not None:
+                    captured += 1
+        except Exception as exc:  # noqa: BLE001 - one account must not block the fleet
+            log.warning("poll_form_leads_failed", account=str(account_id),
+                        error=str(exc)[:200])
+    if captured:
+        log.info("poll_form_leads", captured=captured)
+    return {"captured": captured}
 
 
 @app.task(name="leadpilot.leads.mark_no_response")

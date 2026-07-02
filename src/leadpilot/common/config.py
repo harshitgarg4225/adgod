@@ -51,12 +51,13 @@ class Settings(BaseSettings):
     jwt_refresh_ttl_min: int = 43200
     token_encryption_key: str = Field(default="dev-only-32byte-key-change-me____")
 
-    # LLM router
+    # LLM router. Defaults favour Anthropic (one key covers every role); Gemini models are
+    # opt-in via env. gemini-1.5-* is retired for new API projects — use 2.x if overriding.
     anthropic_api_key: str | None = None
     gemini_api_key: str | None = None
     llm_reasoning_model: str = "claude-opus-4-8"
-    llm_creative_model: str = "gemini-1.5-flash"
-    llm_closer_model: str = "gemini-1.5-flash"
+    llm_creative_model: str = "claude-haiku-4-5-20251001"
+    llm_closer_model: str = "claude-haiku-4-5-20251001"
     llm_daily_budget_per_account_paise: int = 5000
     llm_max_output_tokens: int = 2048
     llm_request_timeout_s: float = 30.0
@@ -70,8 +71,16 @@ class Settings(BaseSettings):
     # Meta
     meta_app_id: str | None = None
     meta_app_secret: str | None = None
-    meta_graph_api_version: str = "v21.0"
+    # Founder/agency Business Manager System User token — the review-free launch path
+    # runs every client's ads with this one token. Per-account tokens stored on
+    # MetaConnection (encrypted) take precedence when present.
+    meta_system_user_token: str | None = None
+    meta_graph_api_version: str = "v23.0"
     meta_webhook_verify_token: str = "dev-verify-token"
+    # Meta rejects ad sets under a per-currency daily minimum (~₹90/day for INR
+    # impressions billing). Ad-set tiers whose share of the budget falls below this fold
+    # into PROSPECTING instead of failing the launch (small budgets → fewer, viable tiers).
+    meta_min_adset_daily_paise: int = 9000
 
     # WhatsApp Cloud API
     whatsapp_cloud_api_token: str | None = None
@@ -105,6 +114,8 @@ class Settings(BaseSettings):
     # OTP
     otp_provider: str = "msg91"
     msg91_api_key: str | None = None
+    # DLT-registered OTP template id — mandatory for OTP SMS delivery in India.
+    msg91_template_id: str | None = None
 
     # Observability
     sentry_dsn: str | None = None
@@ -139,8 +150,12 @@ class Settings(BaseSettings):
         if self.pipeline_inline:
             w.append("PIPELINE_INLINE=true in production (should enqueue workers)")
         # A live integration with no credentials is almost certainly a mistake.
-        if not self.mock_meta and not self.meta_app_secret:
-            w.append("MOCK_META=false but META_APP_SECRET is empty")
+        if not self.mock_meta and not self.meta_system_user_token:
+            w.append("MOCK_META=false but META_SYSTEM_USER_TOKEN is empty — accounts "
+                     "without a per-client token in meta_connections cannot run ads")
+        if not self.mock_otp and not (self.msg91_api_key and self.msg91_template_id):
+            w.append("MOCK_OTP=false but MSG91_API_KEY/MSG91_TEMPLATE_ID incomplete — "
+                     "OTP SMS will not deliver (DLT template id is mandatory in India)")
         if not self.mock_whatsapp and not (self.whatsapp_app_secret or self.bsp_api_key):
             w.append("MOCK_WHATSAPP=false but no WhatsApp secret configured")
         if not self.mock_razorpay and not self.razorpay_webhook_secret:

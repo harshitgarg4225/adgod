@@ -24,9 +24,12 @@ import argparse
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
+from leadpilot.common.config import settings
 from leadpilot.common.crypto import encrypt
 from leadpilot.common.logging import get_logger
+from leadpilot.common.phone import normalize_phone
 from leadpilot.core.db import platform_session, tenant_session
 from leadpilot.core.enums import AccountPhase, AutopilotLevel, TenantType, UserRole, WhatsAppMode
 from leadpilot.core.models import (
@@ -61,19 +64,46 @@ def provision_client(
     # WhatsApp
     wa_mode: str = "APP_DESTINATION",
     phone_number_id: str | None = None,   # only for wa_mode=CLOUD_API
+    verify_meta: bool = True,
 ) -> dict:
+    # The login screen and OTP endpoints normalise to +91XXXXXXXXXX; store the same form
+    # or the owner logs into a ghost self-serve account instead of this business.
+    owner_phone = normalize_phone(owner_phone)
+
+    # A partially-specified Meta connection silently launches nothing — refuse it.
+    meta_bits = {"--ad-account": ad_account_id, "--page": page_id, "--meta-token": meta_token}
+    given = [k for k, v in meta_bits.items() if v]
+    if given and len(given) < 3:
+        missing = [k for k, v in meta_bits.items() if not v]
+        raise SystemExit(f"Meta connection incomplete: {', '.join(given)} given but "
+                         f"{', '.join(missing)} missing — pass all three (or none, and "
+                         "connect Meta later in the app)")
+
+    # Prove the token actually works on this ad account BEFORE the client is live —
+    # a dead token surfaces tomorrow as 'Saathi did nothing', not as an error.
+    if meta_token and verify_meta and not settings.mock_meta:
+        _verify_meta_access(meta_token, ad_account_id)
+
     tenant_id, account_id, user_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
-    with platform_session() as s:
-        s.add(Tenant(id=tenant_id, name=f"{business_name} (client)", type=TenantType.DIRECT.value,
-                     status="ACTIVE", settings={}))
-        s.add(User(id=user_id, tenant_id=tenant_id, account_id=account_id, phone=owner_phone,
-                   role=UserRole.OWNER.value, name=owner_name, locale=language))
-        # CLOUD_API needs a routing key so inbound webhooks resolve this tenant.
-        if wa_mode == WhatsAppMode.CLOUD_API.value and phone_number_id:
-            if s.scalar(select(WaRoute).where(WaRoute.phone_number_id == phone_number_id)) is None:
-                s.add(WaRoute(phone_number_id=phone_number_id, tenant_id=tenant_id,
-                              account_id=account_id))
+    try:
+        with platform_session() as s:
+            s.add(Tenant(id=tenant_id, name=f"{business_name} (client)",
+                         type=TenantType.DIRECT.value, status="ACTIVE", settings={}))
+            s.add(User(id=user_id, tenant_id=tenant_id, account_id=account_id,
+                       phone=owner_phone, role=UserRole.OWNER.value, name=owner_name,
+                       locale=language))
+            # CLOUD_API needs a routing key so inbound webhooks resolve this tenant.
+            if wa_mode == WhatsAppMode.CLOUD_API.value and phone_number_id:
+                if s.scalar(select(WaRoute).where(
+                        WaRoute.phone_number_id == phone_number_id)) is None:
+                    s.add(WaRoute(phone_number_id=phone_number_id, tenant_id=tenant_id,
+                                  account_id=account_id))
+    except IntegrityError as exc:
+        raise SystemExit(
+            f"{owner_phone} is already provisioned (phone numbers are unique). "
+            "Use the existing account, or provision with a different owner phone."
+        ) from exc
 
     with tenant_session(tenant_id) as s:
         s.add(Account(id=account_id, tenant_id=tenant_id, business_name=business_name,
@@ -97,7 +127,37 @@ def provision_client(
 
     log.info("client_provisioned", account=str(account_id), wa_mode=wa_mode)
     return {"tenant_id": str(tenant_id), "account_id": str(account_id),
-            "owner_phone": owner_phone, "wa_mode": wa_mode}
+            "owner_phone": owner_phone, "wa_mode": wa_mode,
+            "meta_connected": bool(ad_account_id and page_id)}
+
+
+def _verify_meta_access(token: str, ad_account_id: str | None) -> None:
+    """GET /me + GET act_{id} with the pasted token — fails fast on a bad/expired token
+    or an ad account the token can't reach."""
+    import httpx
+
+    base = f"https://graph.facebook.com/{settings.meta_graph_api_version}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        me = httpx.get(f"{base}/me", params={"fields": "id,name"}, headers=headers,
+                       timeout=15.0)
+        me.raise_for_status()
+        if ad_account_id:
+            act = httpx.get(f"{base}/act_{ad_account_id}",
+                            params={"fields": "id,account_status,currency"},
+                            headers=headers, timeout=15.0)
+            act.raise_for_status()
+            currency = act.json().get("currency")
+            if currency and currency != "INR":
+                print(f"  ⚠ ad account currency is {currency}, budgets assume INR paise")
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.json().get("error", {}).get("message", exc.response.text[:200])
+        raise SystemExit(
+            f"Meta token verification failed ({exc.response.status_code}): {detail}\n"
+            "Check the System User token scopes (ads_management, business_management) and "
+            "that the ad account is shared with your Business Manager. "
+            "Pass --skip-verify to provision anyway."
+        ) from exc
 
 
 def main() -> None:
@@ -118,6 +178,8 @@ def main() -> None:
     p.add_argument("--wa-mode", default="APP_DESTINATION",
                    choices=[m.value for m in WhatsAppMode])
     p.add_argument("--phone-number-id", default=None, help="only for --wa-mode CLOUD_API")
+    p.add_argument("--skip-verify", action="store_true",
+                   help="skip the live Meta token check (not recommended)")
     a = p.parse_args()
 
     out = provision_client(
@@ -125,12 +187,16 @@ def main() -> None:
         owner_phone=a.owner_phone, owner_name=a.owner_name, daily_budget_rupees=a.daily_budget,
         language=a.language, autopilot=a.autopilot, meta_business_id=a.meta_business,
         ad_account_id=a.ad_account, page_id=a.page, meta_token=a.meta_token,
-        wa_mode=a.wa_mode, phone_number_id=a.phone_number_id)
+        wa_mode=a.wa_mode, phone_number_id=a.phone_number_id,
+        verify_meta=not a.skip_verify)
 
     print("✓ Client provisioned")
     print(f"  account_id : {out['account_id']}")
     print(f"  owner login: {out['owner_phone']}  (they log in with phone OTP)")
     print(f"  whatsapp   : {out['wa_mode']}")
+    if not out["meta_connected"]:
+        print("  ⚠ NO Meta connection — ads cannot launch until --ad-account/--page/"
+              "--meta-token are provisioned (or connected in the app).")
     print("  next: Saathi will research → create ads → launch (auto under FULL autopilot,")
     print("        or after you approve creatives under ASSISTED).")
 

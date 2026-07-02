@@ -37,10 +37,18 @@ This creates the tenant + owner + account + business profile, stores the Meta co
 (token encrypted at rest), and sets WhatsApp to `APP_DESTINATION` on the client's number.
 The owner logs into the app with **phone OTP** (their `--owner-phone`).
 
+## Before you launch: one Meta precondition
+Link the client's **WhatsApp number to their Facebook Page** (Page Settings → WhatsApp →
+Connect). CTWA ad sets promote the Page with `destination_type=WHATSAPP`; a Page with no
+linked WhatsApp number gets the launch rejected by Meta. The wa.me deep link in the ad
+uses `--owner-phone`, so make sure it's the number customers should land on.
+
 ## Go live
 1. **Autonomous path (hands-off):** pass `--autopilot FULL`. The `progress_accounts` cron
    (every 10 min) drives the account **research → creative (image + video) → launch** with
-   no clicks. Ads go live on the client's ad account; clicks open their WhatsApp.
+   no clicks. Ads go live on the client's ad account; clicks open their WhatsApp. Under
+   the default **ASSISTED** mode the same cron launches as soon as creatives are approved
+   (in the app, or via the API) — approval is the only gate.
 2. **Assisted path (you approve):** default. Saathi researches + writes creatives; you (or
    the owner) approve them in the app, then it launches. Trigger phases immediately instead
    of waiting for the cron:
@@ -60,6 +68,18 @@ Only if a client wants Saathi to auto-reply on WhatsApp 24×7:
 2. Re-provision with `--wa-mode CLOUD_API --phone-number-id <PNID>` (registers the routing
    key), submit the seeded templates for approval, set `MOCK_WHATSAPP=false`.
 Everything else stays the same.
+
+## Your operator toolkit (no SMS, no seed data needed)
+```bash
+# Your own back-office login (admin console, impersonation, anomaly queue):
+python -m leadpilot.scripts.create_admin --phone <your phone> --name "You"
+# Log any phone in WITHOUT SMS (client at the shop, MSG91 down, whatever):
+python -m leadpilot.scripts.mint_login --phone +919812345678
+```
+Lead visibility on the own-number path: qualification chats happen in the client's
+WhatsApp, so log enquiries with the **+ Add lead** button in the app (or POST
+`/accounts/{id}/leads`) — that's what makes reports/CPQL real. Instant-Form campaigns are
+pulled automatically every 10 minutes via your System User token (no webhook, no review).
 
 ## The line we don't cross
 Agency operation, own-number CTWA, and client-owned ad accounts are legitimate ways to run

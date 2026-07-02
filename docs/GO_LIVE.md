@@ -25,18 +25,27 @@ It separates **what's a config flip** (minutes) from **what's an external approv
 - Watch `LLM_DAILY_BUDGET_PER_ACCOUNT_PAISE` (per-account cost cap is enforced in the router).
 
 ## Stage 2 — Turn on OTP + billing (config flip once accounts exist)
-- **MSG91**: add `MSG91_API_KEY`, set `MOCK_OTP=false`. (Wire real send + `auth_otps` —
-  the interface is ready; current mock accepts dev code `000000`.)
+- **MSG91**: add `MSG91_API_KEY` + `MSG91_TEMPLATE_ID` (DLT-registered OTP template —
+  mandatory for SMS delivery in India), set `MOCK_OTP=false`. Until SMS is wired (or if it
+  ever fails), mint a login code without SMS:
+  `railway run python -m leadpilot.scripts.mint_login --phone +919812345678` — the client
+  types the printed code into the normal login screen.
 - **Razorpay**: activate account + UPI Autopay + GST; create per-tier Plans; add
   `RAZORPAY_KEY_ID/SECRET/WEBHOOK_SECRET`, map plan ids, set `MOCK_RAZORPAY=false`.
   Point the Razorpay webhook at `https://<webhook-intake>/webhooks/razorpay`.
 
-## Stage 3 — Meta + WhatsApp (the long poles — start these FIRST, in parallel)
-These gate real ads/leads and take **days–weeks**; they are approvals, not code.
-1. **Meta**: Business verification; create/verify the App; request Marketing API + ads
-   permissions (App Review); connect an aged ad account + Page. Fill `META_APP_ID/SECRET`,
-   `META_WEBHOOK_VERIFY_TOKEN`; set `MOCK_META=false`. Subscribe the leadgen webhook to
-   `https://<webhook-intake>/webhooks/meta/leadgen`.
+## Stage 3 — Meta + WhatsApp
+1. **Meta — review-free agency path (recommended, works TODAY):** no App Review needed.
+   Generate a **System User token** in your own Business Manager (System Users → Generate
+   Token; scopes `ads_management`, `business_management`), share/create each client's ad
+   account + Page under your BM, then either set the shared `META_SYSTEM_USER_TOKEN` env
+   or pass `--meta-token` per client to `provision_client` (stored encrypted, used
+   per-account). Set `MOCK_META=false`. Instant-Form leads are **polled** every 10 min via
+   this token (`leadpilot.leads.poll_form_leads`) — no webhook subscription, no review.
+   The leadgen webhook (`https://<webhook-intake>/webhooks/meta/leadgen`) is an optional
+   accelerator once you have an app with the subscription.
+   *(App Review is only for the later self-serve OAuth flow where strangers connect their
+   own Meta accounts to your app.)*
 2. **WhatsApp** — go live in **days, not weeks** (see `docs/WHATSAPP_PROVIDERS.md`):
    - **Fastest:** use a **BSP middleware** (`WHATSAPP_PROVIDER=bsp`). The BSP is the Meta
      Tech Provider, so their Embedded Signup provisions the number in hours/days — no app

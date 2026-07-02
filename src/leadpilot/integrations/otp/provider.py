@@ -22,13 +22,28 @@ class MockOtpProvider(OtpProvider):
 
 class Msg91OtpProvider(OtpProvider):  # pragma: no cover - requires key
     def send(self, *, phone: str, code: str) -> None:
-        # MSG91 OTP/flow API; exact endpoint/fields per MSG91 docs at integration time.
-        httpx.post(
+        # MSG91 SendOTP v5. template_id is a DLT-registered OTP template — mandatory for
+        # SMS delivery in India; without it MSG91 accepts the call and delivers nothing.
+        if not (settings.msg91_api_key and settings.msg91_template_id):
+            raise RuntimeError(
+                "MSG91 not configured: set MSG91_API_KEY and MSG91_TEMPLATE_ID "
+                "(DLT-registered OTP template)"
+            )
+        resp = httpx.post(
             "https://control.msg91.com/api/v5/otp",
-            params={"mobile": phone.lstrip("+"), "otp": code,
-                    "authkey": settings.msg91_api_key},
+            params={"mobile": phone.lstrip("+"),
+                    "template_id": settings.msg91_template_id,
+                    "otp": code, "otp_length": len(code)},
+            headers={"authkey": settings.msg91_api_key},
             timeout=10.0,
         )
+        resp.raise_for_status()
+        body = resp.json()
+        if body.get("type") != "success":
+            # MSG91 signals failures inside a 200 body — surface them, never fail silently
+            # (a client standing at their shop can't log in and nobody would know why).
+            raise RuntimeError(f"MSG91 send failed: {body.get('message', body)}")
+        log.info("otp_sent", phone=phone)
 
 
 def get_otp_provider() -> OtpProvider:

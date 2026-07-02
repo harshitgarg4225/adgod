@@ -107,6 +107,22 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     )
 
 
+async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+    """Domain guards raise ValueError with an owner-explainable message ("no approved
+    creatives to launch", "daily budget too small") — a 422 the UI can show verbatim,
+    never a blank 500."""
+    locale = getattr(request.state, "locale", "en")
+    problem = {
+        "type": "https://leadpilot.app/errors/validation",
+        "title": "Cannot Complete Action",
+        "status": 422,
+        "detail": str(exc),
+        "instance": str(request.url.path),
+        "user_message": str(exc) or t("error.validation", locale),
+    }
+    return JSONResponse(status_code=422, content=problem, media_type="application/problem+json")
+
+
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
     locale = getattr(request.state, "locale", "en")
     problem = {

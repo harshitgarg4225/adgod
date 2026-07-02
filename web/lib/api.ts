@@ -148,6 +148,11 @@ export const api = {
     const qs = p.toString();
     return req<LeadListItem[]>(`/accounts/${accountId}/leads${qs ? `?${qs}` : ""}`);
   },
+  createLead: (accountId: string, body: { name?: string; wa_phone: string; intent_summary?: string }) =>
+    req<{ id: string; created: boolean }>(`/accounts/${accountId}/leads`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   lead: (leadId: string) => req<LeadDetail>(`/leads/${leadId}`),
   patchLead: (leadId: string, patch: { owner_action?: string; status?: string }) =>
     req<LeadDetail>(`/leads/${leadId}`, {

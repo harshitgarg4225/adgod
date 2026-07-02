@@ -193,6 +193,7 @@ class ApprovalState(StrEnum):
 
 
 class InsightLevel(StrEnum):
+    ACCOUNT = "ACCOUNT"   # daily per-account rollup — the dashboard/month-cap source
     CAMPAIGN = "CAMPAIGN"
     ADSET = "ADSET"
     AD = "AD"
