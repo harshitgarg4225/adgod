@@ -37,6 +37,11 @@ app.conf.update(
     timezone="Asia/Kolkata",
     enable_utc=True,
     task_acks_late=True,
+    # acks_late + Redis: a task outliving the visibility timeout gets REDELIVERED and runs
+    # twice concurrently. Keep the timeout above the hardest kill-limit below.
+    broker_transport_options={"visibility_timeout": 7200},
+    task_time_limit=3600,
+    task_soft_time_limit=3300,
     worker_prefetch_multiplier=1,
     task_default_queue="agent",
     task_routes={

@@ -12,9 +12,16 @@ from leadpilot.core.db import engine
 
 @pytest.fixture(scope="session", autouse=True)
 def _migrate():
+    # Advisory lock: two suites TRUNCATE-ing one database corrupt each other mid-test
+    # (observed live as deadlocks + phantom FK failures). The second runner blocks here
+    # until the first finishes instead.
+    lock_conn = engine.connect()
+    lock_conn.execute(text("SELECT pg_advisory_lock(74_2001)"))
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
     yield
+    lock_conn.execute(text("SELECT pg_advisory_unlock(74_2001)"))
+    lock_conn.close()
 
 
 @pytest.fixture(autouse=True)

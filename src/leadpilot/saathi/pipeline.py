@@ -7,12 +7,14 @@ mode so the whole loop is testable end to end without external accounts.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from leadpilot.common.clock import IST, ist_day_start
 from leadpilot.common.config import settings
 from leadpilot.common.logging import get_logger
 from leadpilot.core.enums import (
@@ -44,6 +46,7 @@ from leadpilot.core.models import (
     BusinessProfile,
     Campaign,
     Creative,
+    GuardrailEvent,
     Lead,
     MetaConnection,
     Notification,
@@ -329,15 +332,26 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
         # resumed (the caller's session would roll this back with everything else).
         from leadpilot.core.db import tenant_session as _claim_session
 
-        with _claim_session(tenant_id) as claim:
-            claim.add(Campaign(
-                tenant_id=tenant_id, account_id=account_id, meta_campaign_id=meta_campaign_id,
-                objective=objective, channel="META_CTWA", status=CampaignStatus.IN_REVIEW.value,
-                daily_budget_paise=daily_budget, strategy={"split": "65/20/15"},
-            ))
+        try:
+            with _claim_session(tenant_id) as claim:
+                claim.add(Campaign(
+                    tenant_id=tenant_id, account_id=account_id,
+                    meta_campaign_id=meta_campaign_id, objective=objective,
+                    channel="META_CTWA", status=CampaignStatus.IN_REVIEW.value,
+                    daily_budget_paise=daily_budget, strategy={"split": "65/20/15"},
+                ))
+        except IntegrityError:
+            # Lost the launch race (uq_campaigns_one_open): a concurrent cron/click claimed
+            # first. Adopt the winner's campaign and resume it — never a 500, never a dup.
+            log.warning("launch_race_lost", account=str(account_id))
         campaign = session.scalar(
-            select(Campaign).where(Campaign.account_id == account_id,
-                                   Campaign.meta_campaign_id == meta_campaign_id))
+            select(Campaign).where(
+                Campaign.account_id == account_id,
+                Campaign.status.in_([CampaignStatus.IN_REVIEW.value,
+                                     CampaignStatus.ACTIVE.value])))
+        if campaign.status == CampaignStatus.ACTIVE.value:
+            return [campaign.id]  # the race winner already finished
+        meta_campaign_id = campaign.meta_campaign_id
 
     city = profile.service_area_city if profile else "Indore"
     radius = profile.service_radius_km if profile else 10
@@ -377,16 +391,24 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
         )
         session.add(adset)
         session.flush()
-        # One ad per creative into this ad set.
+        # One ad per creative into this ad set. Names are deterministic per creative so a
+        # resumed launch reuses ads that already exist on Meta instead of stacking dupes.
+        existing_ads = {a.get("name"): a.get("id")
+                        for a in meta.list_ads(meta_adset_id=meta_adset_id)}
         for creative in creatives:
-            meta_creative_id = meta.create_creative(
-                ad_account_id=ad_account_id, page_id=page_id, message=creative.primary_text or "",
-                headline=creative.headline or "", link_or_cta=cta, image_url=creative.asset_url,
-            )
-            meta_ad_id = meta.create_ad(
-                ad_account_id=ad_account_id, adset_id=meta_adset_id,
-                creative_meta_id=meta_creative_id, name=f"ad-{creative.headline}"[:60],
-            )
+            ad_name = f"ad-{creative.id.hex[:10]}"
+            meta_ad_id = existing_ads.get(ad_name)
+            if meta_ad_id is None:
+                meta_creative_id = meta.create_creative(
+                    ad_account_id=ad_account_id, page_id=page_id,
+                    message=creative.primary_text or "",
+                    headline=creative.headline or "", link_or_cta=cta,
+                    image_url=creative.asset_url,
+                )
+                meta_ad_id = meta.create_ad(
+                    ad_account_id=ad_account_id, adset_id=meta_adset_id,
+                    creative_meta_id=meta_creative_id, name=ad_name,
+                )
             session.add(Ad(tenant_id=tenant_id, account_id=account_id, ad_set_id=adset.id,
                           meta_ad_id=meta_ad_id, creative_id=creative.id,
                           status=CampaignStatus.ACTIVE.value, review_status="IN_REVIEW"))
@@ -419,7 +441,8 @@ def _upsert_daily_insight(session: Session, *, tenant_id: UUID, account_id: UUID
     existing = session.scalar(
         select(AdInsight).where(
             AdInsight.account_id == account_id, AdInsight.level == level,
-            AdInsight.ref_id == ref_id, AdInsight.date >= day)
+            AdInsight.ref_id == ref_id, AdInsight.date >= day,
+            AdInsight.date < day + timedelta(days=1))
     )
     if existing is None:
         session.add(AdInsight(tenant_id=tenant_id, account_id=account_id, level=level,
@@ -454,7 +477,9 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
     by_meta = {r.meta_id: r for r in rows}
 
     # Account-level qualified leads today → CPQL (joined from the lead stream, PRD §6.5.1).
-    today = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # IST day boundary: Meta's date_preset=today follows the ad account timezone, so the
+    # snapshot day must too — UTC midnight would clobber each night's numbers at 05:30 IST.
+    today = ist_day_start()
     qualified_today = session.scalar(
         select(func.count(Lead.id)).where(
             Lead.account_id == account_id, Lead.created_at >= today,
@@ -535,10 +560,26 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
                 adset.status = CampaignStatus.PAUSED.value
                 freed_paise += adset.budget_paise  # reclaim for winners
             elif action == OptimizationAction.SCALE:
-                meta.set_adset_budget(meta_adset_id=adset.meta_adset_id,
-                                      daily_budget_paise=after["budget_paise"])
-                adset.budget_paise = after["budget_paise"]
-                winners.append(adset)
+                capped = _cap_to_account_budget(ad_sets, adset, after["budget_paise"],
+                                                total_budget)
+                if capped <= adset.budget_paise:
+                    # A winner held back by the owner's budget is worth recording — it is
+                    # the honest answer to "why didn't Saathi scale my best ad set?".
+                    session.add(OptimizationDecision(
+                        tenant_id=tenant_id, account_id=account_id, run_id=run.id,
+                        level=InsightLevel.ADSET.value, ref_id=adset.id,
+                        action=OptimizationAction.SCALE.value,
+                        reason_code="held_by_account_budget",
+                        before={"budget_paise": adset.budget_paise},
+                        after={}, applied=False))
+                    action, reason, after = OptimizationAction.NO_OP, "account_budget_cap", {}
+                    winners.append(adset)  # still a winner for freed-budget reallocation
+                else:
+                    after = {"budget_paise": capped}
+                    meta.set_adset_budget(meta_adset_id=adset.meta_adset_id,
+                                          daily_budget_paise=capped)
+                    adset.budget_paise = capped
+                    winners.append(adset)
                 # Promote a proven test winner into the prospecting tier (isolation → scale).
                 if reason == "proven_winner" and adset.role == AdSetRole.TESTING.value:
                     adset.role = AdSetRole.PROSPECTING.value
@@ -571,11 +612,11 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
     if freed_paise > 0 and winners:
         share = freed_paise // len(winners)
         for adset in winners:
-            headroom = clamp_scale(current_paise=adset.budget_paise,
-                                   proposed_paise=adset.budget_paise + share) - adset.budget_paise
-            if headroom <= 0:
+            proposed = clamp_scale(current_paise=adset.budget_paise,
+                                   proposed_paise=adset.budget_paise + share)
+            new_budget = _cap_to_account_budget(ad_sets, adset, proposed, total_budget)
+            if new_budget <= adset.budget_paise:
                 continue
-            new_budget = adset.budget_paise + headroom
             meta.set_adset_budget(meta_adset_id=adset.meta_adset_id, daily_budget_paise=new_budget)
             session.add(OptimizationDecision(
                 tenant_id=tenant_id, account_id=account_id, run_id=run.id,
@@ -601,10 +642,94 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
         cpql_paise=(total_spend // qualified_today) if qualified_today else 0,
     )
 
+    # Meta review rejections and dead delivery are silent otherwise — sweep them here so
+    # the operator sees an alert instead of a mystery zero-lead week. Real mode only.
+    if not settings.mock_meta:
+        _sweep_ad_reviews(session, meta, tenant_id=tenant_id, account_id=account_id)
+        if rows and all(r.impressions == 0 for r in rows) and datetime.now(IST).hour >= 12:
+            already = session.scalar(select(GuardrailEvent).where(
+                GuardrailEvent.account_id == account_id,
+                GuardrailEvent.action_taken == "ZERO_DELIVERY",
+                GuardrailEvent.created_at >= today))
+            if already is None:
+                session.add(GuardrailEvent(
+                    tenant_id=tenant_id, account_id=account_id, type="ANOMALY",
+                    severity="ERROR", action_taken="ZERO_DELIVERY",
+                    detail={"reason": "active_campaign_zero_delivery",
+                            "hint": "check ad review status / Page-WhatsApp link"}))
+
     if account.phase == AccountPhase.LIVE.value:
         account.phase = AccountPhase.OPTIMIZING.value
     log.info("optimize_done", account=str(account_id), decisions=len(decisions))
     return decisions
+
+
+def _sweep_ad_reviews(session: Session, meta, *, tenant_id: UUID, account_id: UUID) -> None:
+    ads = session.scalars(select(Ad).where(
+        Ad.account_id == account_id, Ad.status == CampaignStatus.ACTIVE.value)).all()
+    meta_ids = [a.meta_ad_id for a in ads if a.meta_ad_id]
+    if not meta_ids:
+        return
+    try:
+        statuses = meta.get_ad_statuses(meta_ids=meta_ids)
+    except Exception as exc:  # noqa: BLE001 - the sweep must never break optimization
+        log.warning("ad_status_sweep_failed", account=str(account_id), error=str(exc)[:200])
+        return
+    for ad in ads:
+        status = statuses.get(ad.meta_ad_id or "")
+        if not status or status == ad.review_status:
+            continue
+        ad.review_status = status
+        if status in {"DISAPPROVED", "WITH_ISSUES"}:
+            session.add(GuardrailEvent(
+                tenant_id=tenant_id, account_id=account_id, type="ANOMALY", severity="ERROR",
+                action_taken="AD_REJECTED", detail={"reason": "meta_ad_rejected",
+                                                    "ad_id": str(ad.id), "status": status}))
+            session.add(Notification(
+                tenant_id=tenant_id, account_id=account_id,
+                kind=NotificationKind.ANOMALY.value, title="An ad needs attention",
+                body="Meta didn\'t approve one of your ads. Saathi is preparing a fix."))
+
+
+def reconcile_budgets(session: Session, *, tenant_id: UUID, account_id: UUID) -> int:
+    """The owner changed the daily budget — push it to the LIVE Meta ad sets immediately.
+    A spend control that only edits a database row while Meta keeps spending the old
+    amount is a trust breaker. Scales each active ad set proportionally."""
+    profile = session.scalar(
+        select(BusinessProfile).where(BusinessProfile.account_id == account_id))
+    if profile is None:
+        return 0
+    ad_sets = session.scalars(select(AdSet).where(
+        AdSet.account_id == account_id, AdSet.status == CampaignStatus.ACTIVE.value)).all()
+    current_total = sum(a.budget_paise for a in ad_sets)
+    if not ad_sets or current_total <= 0:
+        return 0
+    meta = meta_adapter_for_account(session, account_id)
+    new_total = profile.daily_budget_paise
+    changed = 0
+    for adset in ad_sets:
+        new_budget = max(settings.meta_min_adset_daily_paise,
+                         adset.budget_paise * new_total // current_total)
+        if new_budget == adset.budget_paise or not adset.meta_adset_id:
+            continue
+        meta.set_adset_budget(meta_adset_id=adset.meta_adset_id,
+                              daily_budget_paise=new_budget)
+        adset.budget_paise = new_budget
+        changed += 1
+    if changed:
+        log.info("budgets_reconciled", account=str(account_id), adsets=changed,
+                 new_total=new_total)
+    return changed
+
+
+def _cap_to_account_budget(ad_sets: list, adset, proposed: int, total_budget: int) -> int:
+    """The +20% clamp is per-adset; this caps the SUM of active ad-set budgets at the
+    account's daily budget so hourly compounding can never grow past what the owner set."""
+    if not total_budget:
+        return proposed
+    others = sum(a.budget_paise for a in ad_sets
+                 if a is not adset and a.status == CampaignStatus.ACTIVE.value)
+    return min(proposed, max(adset.budget_paise, total_budget - others))
 
 
 def _decide(adset: AdSet, row, cpl, target_cpql, total_budget, *, blind: bool = False):
@@ -694,7 +819,7 @@ def rotate_fresh_creative(session: Session, *, tenant_id: UUID, account_id: UUID
 
 def run_report(session: Session, *, tenant_id: UUID, account_id: UUID) -> str:
     account = session.get(Account, account_id)
-    today = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = ist_day_start()
     # Sum ADSET-level daily snapshots only — mixing levels (or the pre-fix hourly appends)
     # would tell a paying owner an inflated spend number.
     spend = session.scalar(

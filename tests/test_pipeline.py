@@ -78,8 +78,10 @@ def test_full_pipeline_to_optimizing(seeded):
         recorded = s.scalars(
             select(OptimizationDecision).where(OptimizationDecision.account_id == DEMO_ACCOUNT_ID)
         ).all()
-        # All applied decisions stay within bounds (no scale beyond +20%/day handled by clamp).
-        assert all(d.applied for d in recorded)
+        # All decisions are applied — except scale intents held by the account budget,
+        # which are deliberately recorded unapplied (transparency, not action).
+        assert all(d.applied or d.reason_code == "held_by_account_budget"
+                   for d in recorded)
         actions = {d.action for d in recorded}
         assert actions & {"PAUSE", "SCALE", "REQUEST_CREATIVE"}
 

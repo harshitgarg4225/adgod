@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useT } from "@/lib/i18n";
 import type { Score } from "@/lib/types";
 
 /* ───────────────────────────── Icons ───────────────────────────── */
@@ -44,6 +45,7 @@ const ICONS: Record<string, string> = {
   pause: "M9 5v14M15 5v14",
   play: "M7 5l12 7-12 7V5Z",
   plus: "M12 5v14M5 12h14",
+  download: "M12 3v12m0 0l-4-4m4 4l4-4M5 21h14",
   alert: "M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
   logout: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9",
   shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3Z",
@@ -413,6 +415,7 @@ export function Badge({
 }
 
 export function ScoreBadge({ score }: { score: Score }) {
+  const t = useT();
   if (!score) return null;
   const tone: Record<string, "hot" | "warm" | "cold" | "neutral"> = {
     HOT: "hot",
@@ -421,10 +424,10 @@ export function ScoreBadge({ score }: { score: Score }) {
     SPAM: "neutral",
   };
   const label: Record<string, string> = {
-    HOT: "Hot lead",
-    WARM: "Warm",
-    COLD: "Cold",
-    SPAM: "Spam",
+    HOT: t("leads.hot", "Hot lead"),
+    WARM: t("leads.warm", "Warm"),
+    COLD: t("leads.cold", "Cold"),
+    SPAM: t("leads.spam", "Spam"),
   };
   const dot: Record<string, string> = {
     HOT: "bg-hot",
@@ -493,6 +496,7 @@ export function EmptyState({
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const t = useT();
   return (
     <div
       className="flex flex-col items-center justify-center gap-3 px-8 py-16 text-center"
@@ -504,7 +508,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
       <p className="text-sm text-ink-soft">{message}</p>
       {onRetry && (
         <Button variant="secondary" size="sm" leftIcon="clock" onClick={onRetry}>
-          Try again
+          {t("common.tryAgain", "Try again")}
         </Button>
       )}
     </div>
@@ -557,8 +561,7 @@ const NAV = [
 ];
 
 export function BottomNav({ active }: { active: string }) {
-  // Lightweight; the screens import their own t() — labels passed in via data attrs would
-  // over-couple. Here we keep English labels and let the icon carry meaning universally.
+  const t = useT();
   return (
     <nav className="cta-dock flex items-stretch justify-around !pt-2" aria-label="Primary">
       {NAV.map((n) => {
@@ -572,7 +575,7 @@ export function BottomNav({ active }: { active: string }) {
               ${on ? "text-brand" : "text-ink-faint"}`}
           >
             <Icon name={n.icon} className="h-6 w-6" filled={on} strokeWidth={on ? 0.6 : 1.8} />
-            {n.en}
+            {t(n.key, n.en)}
           </Link>
         );
       })}
@@ -667,12 +670,13 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   return (
     <Sheet open={open} onClose={onClose} title={title}>
       {body && <p className="mb-5 text-sm text-ink-muted">{body}</p>}
       <div className="flex gap-3">
         <Button variant="secondary" fullWidth onClick={onClose}>
-          Cancel
+          {t("common.cancel", "Cancel")}
         </Button>
         <Button
           variant={tone === "danger" ? "danger" : "primary"}
@@ -778,6 +782,7 @@ export function Sparkline({
 /* ───────────────────────────── Offline banner ───────────────────────────── */
 
 export function OfflineBanner() {
+  const t = useT();
   const [offline, setOffline] = useState(false);
   useEffect(() => {
     const on = () => setOffline(false);
@@ -794,7 +799,7 @@ export function OfflineBanner() {
   return (
     <div className="sticky top-0 z-40 flex items-center justify-center gap-2 bg-ink px-4 py-2 text-xs font-medium text-white">
       <Icon name="alert" className="h-4 w-4" />
-      You&apos;re offline — we&apos;ll retry when you reconnect.
+      {t("common.offline", "You're offline — we'll retry when you reconnect.")}
     </div>
   );
 }

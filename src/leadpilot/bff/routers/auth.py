@@ -110,12 +110,17 @@ def otp_verify(req: OtpVerify) -> TokenOut:
     enforce("otp_verify", phone, limit=10, window_s=600, fail_closed=True)
     now = datetime.now(UTC)
     with platform_session() as s:
-        otp = s.scalar(
+        # Check the last few live codes, not just the newest: an operator-minted code
+        # (scripts/mint_login) must keep working even if the client taps "Send OTP" after
+        # it was minted (which would otherwise supersede it).
+        candidates = s.scalars(
             select(AuthOtp).where(AuthOtp.phone == phone, AuthOtp.consumed_at.is_(None),
                                   AuthOtp.expires_at > now)
-            .order_by(AuthOtp.created_at.desc())
-        )
-        if otp is None or otp.code_hash != hash_otp(req.code, otp.salt or ""):
+            .order_by(AuthOtp.created_at.desc()).limit(3)
+        ).all()
+        otp = next((o for o in candidates
+                    if o.code_hash == hash_otp(req.code, o.salt or "")), None)
+        if otp is None:
             raise AuthError("Invalid or expired code", user_message_key="error.validation")
         otp.consumed_at = now
 

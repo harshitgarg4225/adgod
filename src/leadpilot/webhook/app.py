@@ -186,8 +186,10 @@ def _process_leadgen(payload: dict) -> int:
             if change.get("field") != "leadgen":
                 continue
             v = change.get("value", {})
-            leadgen_id, page_id = v.get("leadgen_id"), v.get("page_id")
-            if not leadgen_id or not page_id:
+            leadgen_id, page_id = str(v.get("leadgen_id") or ""), str(v.get("page_id") or "")
+            # Graph ids are numeric — anything else in an (HMAC-verified) payload is
+            # malformed and must not reach a Graph path segment or a DB lookup.
+            if not (leadgen_id.isdigit() and page_id.isdigit()):
                 continue
             event_id = record_inbound_event(
                 provider="meta_leadgen", external_id=leadgen_id,

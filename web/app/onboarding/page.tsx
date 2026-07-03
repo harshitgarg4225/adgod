@@ -57,7 +57,21 @@ export default function Onboarding() {
 
   return (
     <main className="min-h-[100dvh] pb-28">
-      <TopBar title={t("ob.title", "Let's set up your ads")} back={step === 0 ? undefined : true} />
+      {/* Steps are component state on one route: history-back would exit the app and
+          discard the form. Render our own step-back control instead. */}
+      <TopBar
+        title={t("ob.title", "Let's set up your ads")}
+        right={
+          step > 0 ? (
+            <button
+              onClick={() => setStep((s) => s - 1)}
+              className="flex h-10 items-center rounded-full px-3 text-sm font-medium text-ink-soft hover:bg-slate-100"
+            >
+              {t("ob.back", "Back")}
+            </button>
+          ) : undefined
+        }
+      />
       <div className="px-5 pt-2">
         {/* Progress */}
         <div className="mb-1 flex gap-1.5">

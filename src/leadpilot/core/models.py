@@ -667,6 +667,7 @@ class AuthOtp(Base):
 #   * users: the identity table is looked up by globally-unique phone during login,
 #     BEFORE any tenant context exists. Lead/message PII stays strictly RLS.
 RLS_TABLES = [
+    "users",
     "accounts", "business_profiles", "whatsapp_connections", "meta_connections",
     "campaigns", "creatives", "leads", "conversations", "messages", "lead_qualifications",
     "agent_runs", "guardrail_events", "notifications",

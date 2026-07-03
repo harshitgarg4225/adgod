@@ -3,13 +3,12 @@ pause/resume kill-switch (PRD §6.7, §12 — trust). Everything here is owner-f
 account-scoped; RLS confines writes to the owner's own tenant."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from leadpilot.bff.deps import Principal, current_principal, require_account_access
+from leadpilot.common.clock import ist_month_start
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.common.i18n import SUPPORTED_LOCALES
 from leadpilot.core.db import tenant_session
@@ -52,6 +51,8 @@ class SettingsPatch(BaseModel):
     service_area_city: str | None = Field(default=None, max_length=80)
     service_radius_km: int | None = Field(default=None, ge=1, le=100)
     daily_budget_paise: int | None = Field(default=None, ge=10000)  # ≥ ₹100/day
+    # Hard monthly spend ceiling (enforced at launch + optimizer); None/0 = uncapped.
+    monthly_cap_paise: int | None = Field(default=None, ge=0)
     default_language: str | None = None
     autopilot_level: str | None = None
     gstin: str | None = Field(default=None, max_length=20)
@@ -60,8 +61,9 @@ class SettingsPatch(BaseModel):
 
 
 def month_to_date_spend(session, account_id: str) -> int:
-    """Sum of account-level ad spend since the 1st of the current month (UTC)."""
-    month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    """Sum of account-level ad spend since the 1st of the current month (IST — the
+    business/billing day follows the ad account timezone, not UTC)."""
+    month_start = ist_month_start()
     total = session.execute(
         select(func.coalesce(func.sum(AdInsight.spend_paise), 0)).where(
             AdInsight.account_id == account_id,
@@ -147,8 +149,16 @@ def update_settings(
                 profile.service_area_city = patch.service_area_city
             if patch.service_radius_km is not None:
                 profile.service_radius_km = patch.service_radius_km
+            if patch.monthly_cap_paise is not None:
+                profile.monthly_cap_paise = patch.monthly_cap_paise or None
             if patch.daily_budget_paise is not None:
                 profile.daily_budget_paise = patch.daily_budget_paise
+                # Push the new budget to the LIVE Meta ad sets right away — an owner
+                # lowering spend must actually lower spend, not just a DB row.
+                if account.phase in _RESUMABLE:
+                    from leadpilot.saathi.pipeline import reconcile_budgets
+
+                    reconcile_budgets(s, tenant_id=account.tenant_id, account_id=account.id)
     return get_settings(account_id, principal)
 
 

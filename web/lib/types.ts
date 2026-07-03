@@ -49,6 +49,7 @@ export interface LeadDetail {
   created_at: string;
   qualified_at: string | null;
   transcript: Message[];
+  can_message: boolean;
 }
 
 export interface Home {

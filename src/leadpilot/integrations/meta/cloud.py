@@ -110,6 +110,20 @@ class CloudMetaAdapter(MetaAdapter):  # pragma: no cover - requires live Meta cr
     def list_adsets(self, *, meta_campaign_id) -> list[dict]:
         return self._get_paged(f"{meta_campaign_id}/adsets", {"fields": "id,name", "limit": 100})
 
+    def list_ads(self, *, meta_adset_id) -> list[dict]:
+        return self._get_paged(f"{meta_adset_id}/ads", {"fields": "id,name", "limit": 100})
+
+    def get_ad_statuses(self, *, meta_ids) -> dict[str, str]:
+        out: dict[str, str] = {}
+        # Batch fetch via ?ids= (50 per call is Graph's comfortable limit).
+        for i in range(0, len(meta_ids), 50):
+            chunk = meta_ids[i:i + 50]
+            body = self._get("", {"ids": ",".join(chunk), "fields": "effective_status"})
+            for mid, obj in body.items():
+                if isinstance(obj, dict) and obj.get("effective_status"):
+                    out[mid] = obj["effective_status"]
+        return out
+
     def create_adset(
         self, *, ad_account_id, campaign_id, name, targeting, daily_budget_paise,
         optimization_goal, promoted_object, destination_type=None, status="PAUSED",
@@ -201,7 +215,7 @@ class CloudMetaAdapter(MetaAdapter):  # pragma: no cover - requires live Meta cr
             if not data:
                 continue
             d = data[0]
-            spend_paise = int(float(d.get("spend", 0)) * 100)
+            spend_paise = int(round(float(d.get("spend", 0)) * 100))
             leads = 0
             for a in d.get("actions", []):
                 if str(a.get("action_type", "")).startswith(_LEAD_ACTION_PREFIXES):

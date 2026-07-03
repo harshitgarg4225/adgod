@@ -58,7 +58,7 @@ class MockMetaAdapter(MetaAdapter):
         return self._new_id("crea")
 
     def create_ad(self, *, ad_account_id, adset_id, creative_meta_id, name, status="PAUSED") -> str:
-        return self._new_id("ad")
+        return self._new_id("ad", name=name, parent=adset_id)
 
     def set_status(self, *, level, meta_id, status) -> None:
         CREATED.setdefault(meta_id, {})["status"] = status
@@ -85,6 +85,14 @@ class MockMetaAdapter(MetaAdapter):
                 clicks=clicks, ctr=round(ctr, 4), frequency=round(frequency, 2), leads=leads,
             ))
         return rows
+
+    def list_ads(self, *, meta_adset_id) -> list[dict]:
+        return [{"id": mid, "name": meta.get("name", "")}
+                for mid, meta in CREATED.items()
+                if meta.get("kind") == "ad" and meta.get("parent") == meta_adset_id]
+
+    def get_ad_statuses(self, *, meta_ids) -> dict[str, str]:
+        return {mid: "ACTIVE" for mid in meta_ids}
 
     def get_form_leads(self, *, page_id, since_iso=None) -> list[dict]:
         return []  # mock has no Instant Forms; the polling task no-ops cleanly

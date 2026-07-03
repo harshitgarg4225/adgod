@@ -94,7 +94,7 @@ def test_meta_leadgen_captures_lead(seeded, monkeypatch):
     # Demo account is seeded with a MetaConnection page_id "9876543210".
     monkeypatch.setattr(settings, "meta_app_secret", "meta-secret")
     c = TestClient(webhook_app.app)
-    value = {"leadgen_id": "lg_1", "page_id": "9876543210", "form_id": "f1",
+    value = {"leadgen_id": "444001", "page_id": "9876543210", "form_id": "f1",
              "field_data": [{"name": "full_name", "values": ["Priya"]},
                             {"name": "phone_number", "values": ["+919800001234"]}]}
     payload = {"entry": [{"changes": [{"field": "leadgen", "value": value}]}]}

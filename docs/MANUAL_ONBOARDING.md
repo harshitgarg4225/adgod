@@ -71,11 +71,25 @@ Everything else stays the same.
 
 ## Your operator toolkit (no SMS, no seed data needed)
 ```bash
-# Your own back-office login (admin console, impersonation, anomaly queue):
+# Your own back-office login (fleet view, daily digest, anomaly queue, impersonation):
 python -m leadpilot.scripts.create_admin --phone <your phone> --name "You"
-# Log any phone in WITHOUT SMS (client at the shop, MSG91 down, whatever):
+# Log any phone in WITHOUT SMS (client at the shop, MSG91 down, whatever) — the client
+# taps "I already have a code" on the login screen and types it:
 python -m leadpilot.scripts.mint_login --phone +919812345678
 ```
+Then open **/admin** after logging in:
+- **Fleet view** — every client's phase, today's spend, leads today, and Meta token
+  health in one screen (a dead token shows as `Meta ERROR`).
+- **Daily digest** — per-client Hindi summary with a "Copy for WhatsApp" button; forward
+  it to each client every evening (this replaces the automated report until clients have
+  Cloud API numbers).
+- **Open as client** — audited impersonation straight into their dashboard (approve
+  creatives on their behalf, check their view).
+- **Mark paid** — after collecting UPI/bank payment, mark the subscription ACTIVE so the
+  trial sweep never pauses a paying client.
+
+Provision with a hard ceiling per client: `--monthly-cap 15000` (rupees). Owners can also
+set it later in Settings; launches are blocked once month-to-date spend crosses it.
 Lead visibility on the own-number path: qualification chats happen in the client's
 WhatsApp, so log enquiries with the **+ Add lead** button in the app (or POST
 `/accounts/{id}/leads`) — that's what makes reports/CPQL real. Instant-Form campaigns are

@@ -14,6 +14,7 @@ from leadpilot.bff.deps import Principal, current_principal, require_account_acc
 from leadpilot.bff.routers.settings import month_to_date_spend
 from leadpilot.common.config import settings
 from leadpilot.common.errors import NotFoundError, ValidationError
+from leadpilot.common.ratelimit import enforce
 from leadpilot.core.db import tenant_session
 from leadpilot.core.enums import AccountPhase
 from leadpilot.core.models import (
@@ -46,6 +47,8 @@ _PHASE_TASKS = {
 def _maybe_enqueue(phase: str, tenant_id: str, account_id: str) -> dict | None:
     """In production (pipeline_inline=false) enqueue the phase and return a 'queued' dict;
     inline (pilot/dev) returns None so the caller runs it synchronously."""
+    # Cost control: each phase spends LLM/Meta money — bound a runaway or scripted client.
+    enforce("pipeline_run", account_id, limit=30, window_s=3600)
     if settings.pipeline_inline:
         return None
     task, queue = _PHASE_TASKS[phase]

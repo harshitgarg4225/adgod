@@ -194,7 +194,12 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
-        return self.environment.lower() == "production"
+        """Fail-closed: any environment that is not an explicitly recognised local/dev/test
+        value gets the full production posture (dev-secret boot refusal, restricted CORS,
+        hidden dev_code, RLS role required). A typo'd ENVIRONMENT ('prod', 'staging', '')
+        must never silently boot with dev defaults — same allowlist the webhook signature
+        gate uses."""
+        return self.environment.lower() not in {"development", "dev", "test", "local"}
 
     @property
     def requires_secure_webhooks(self) -> bool:

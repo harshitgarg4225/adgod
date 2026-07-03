@@ -18,6 +18,19 @@ from leadpilot.common.logging import get_logger
 log = get_logger("http_retry")
 
 _RETRYABLE = {429, 500, 502, 503, 504}
+# Graph/Marketing API throttling arrives as HTTP 400 with these error codes (NOT 429):
+# 4 app-level, 17 user-level, 32 page-level, 613 custom rate limit, 80004 ads throttle.
+_META_THROTTLE_CODES = {4, 17, 32, 613, 80004}
+
+
+def _is_meta_throttle(resp: Any) -> bool:
+    if getattr(resp, "status_code", 0) != 400:
+        return False
+    try:
+        err = resp.json().get("error", {})
+        return err.get("code") in _META_THROTTLE_CODES or err.get("is_transient") is True
+    except Exception:  # noqa: BLE001 - non-JSON body → not a throttle signal
+        return False
 
 
 def parse_retry_after(value: str | None) -> float | None:
@@ -45,20 +58,34 @@ def request_with_retry(
     sleep: Callable[[float], None] = time.sleep,
 ) -> Any:
     """Call ``do_request`` (a no-arg callable returning an httpx.Response-like object),
-    retrying retryable statuses. Honours Retry-After; caps the backoff at ``max_delay``."""
+    retrying retryable statuses, Meta throttle signals (400 + error code 4/17/32/613),
+    and transient transport errors. Honours Retry-After; caps backoff at ``max_delay``."""
     last = None
     for attempt in range(max_attempts):
-        resp = do_request()
+        try:
+            resp = do_request()
+        except Exception as exc:  # httpx.TransportError etc. — retry, don't die on attempt 1
+            if type(exc).__module__.split(".")[0] != "httpx" or attempt == max_attempts - 1:
+                raise
+            delay = min(base_delay * (2 ** attempt), max_delay)
+            log.warning("http_retry_transport", error=str(exc)[:120], attempt=attempt + 1,
+                        delay=round(delay, 2))
+            sleep(delay)
+            continue
         last = resp
         status = getattr(resp, "status_code", 200)
-        if status not in _RETRYABLE:
+        throttled = _is_meta_throttle(resp)
+        if status not in _RETRYABLE and not throttled:
             return resp
         if attempt == max_attempts - 1:
             break
         retry_after = parse_retry_after(_header(resp, "Retry-After"))
-        delay = retry_after if retry_after is not None else base_delay * (2 ** attempt)
-        delay = min(delay, max_delay)
-        log.warning("http_retry", status=status, attempt=attempt + 1, delay=round(delay, 2))
+        # Meta doesn't send Retry-After on throttles — back off generously so the crons
+        # stop hammering (one shared System User token throttles every client at once).
+        default = (10.0 if throttled else base_delay) * (2 ** attempt)
+        delay = min(retry_after if retry_after is not None else default, max_delay)
+        log.warning("http_retry", status=status, throttled=throttled, attempt=attempt + 1,
+                    delay=round(delay, 2))
         sleep(delay)
     return last
 

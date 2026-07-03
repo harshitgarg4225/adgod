@@ -29,7 +29,7 @@ import type {
   Wallet,
 } from "./types";
 
-const API_BASE =
+export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api/v1";
 
 const ACCESS_KEY = "salmor_access";
@@ -265,7 +265,7 @@ export const api = {
     req<{ message: string }>(`/accounts/${accountId}/report/run`, { method: "POST" }),
 
   // Billing
-  tiers: () => req<Tier[]>("/billing/tiers"),
+  tiers: () => req<{ tiers: Tier[]; manual_mode: boolean }>("/billing/tiers"),
   subscribe: (tier: string) =>
     req<SubscribeResult>("/billing/subscribe", {
       method: "POST",
@@ -304,6 +304,11 @@ export const api = {
   adminAnomalies: () => req<AnomalyEvent[]>("/admin/anomaly-queue"),
   adminPause: (accountId: string) =>
     req<{ phase: string }>(`/admin/accounts/${accountId}/pause`, { method: "POST" }),
+  adminDigest: () => req<{ date: string; clients: any[] }>("/admin/digest"),
+  adminMarkPaid: (accountId: string) =>
+    req<{ ok: boolean; status: string }>(`/admin/accounts/${accountId}/subscription/mark-paid`, {
+      method: "POST",
+    }),
   adminImpersonate: (accountId: string) =>
     req<{ access: string; impersonating: string }>(`/admin/impersonate/${accountId}`, {
       method: "POST",

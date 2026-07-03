@@ -16,6 +16,16 @@ const KIND_ICON: Record<string, string> = {
   CREATIVE_READY: "sparkle",
 };
 
+// A notification that asks for action must take the owner THERE, not be inert text —
+// "Your ads are ready" was previously an un-tappable list row.
+const KIND_HREF: Record<string, string> = {
+  CREATIVE_READY: "/onboarding/creatives",
+  APPROVAL: "/onboarding/creatives",
+  HOT_LEAD: "/leads",
+  REPORT: "/reports",
+  BILLING: "/billing",
+};
+
 export default function NotificationsPage() {
   const router = useRouter();
   const t = useT();
@@ -62,7 +72,11 @@ export default function NotificationsPage() {
       ) : (
         <ul className="divide-y divide-slate-100 px-4">
           {items.map((n) => (
-            <li key={n.id} className="flex gap-3 py-3.5">
+            <li
+              key={n.id}
+              className={`flex gap-3 py-3.5 ${KIND_HREF[n.kind] ? "cursor-pointer active:bg-slate-50" : ""}`}
+              onClick={() => KIND_HREF[n.kind] && router.push(KIND_HREF[n.kind])}
+            >
               <div
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                   n.read_at ? "bg-slate-100 text-ink-faint" : "bg-brand-50 text-brand"

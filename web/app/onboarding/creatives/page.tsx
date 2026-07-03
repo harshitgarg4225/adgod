@@ -10,6 +10,7 @@ import {
   Button,
   Card,
   Celebration,
+  EmptyState,
   ErrorState,
   Icon,
   Loading,
@@ -90,9 +91,18 @@ export default function CreativesPage() {
       <TopBar title={t("creatives.title", "Your ads are ready")} back="/onboarding/brief" />
 
       <section className="space-y-4 p-4">
-        <p className="text-sm text-ink-muted">
-          {t("creatives.intro", "Saathi wrote these for you. Take a look — you can change anything later.")}
-        </p>
+        {creatives.length === 0 && (
+          <EmptyState
+            title={t("creatives.emptyTitle", "Saathi is still designing")}
+            hint={t("creatives.emptyHint", "Your ads are being generated — check back in a minute.")}
+            icon="sparkle"
+          />
+        )}
+        {creatives.length > 0 && (
+          <p className="text-sm text-ink-muted">
+            {t("creatives.intro", "Saathi wrote these for you. Take a look — you can change anything later.")}
+          </p>
+        )}
         {creatives.map((c) => {
           const ok = c.compliance_status === "PASSED";
           return (
@@ -146,7 +156,9 @@ export default function CreativesPage() {
       <div className="cta-dock">
         {blocked && (
           <p className="mb-2 text-center text-xs text-hot">
-            {t("creatives.fixFirst", "One ad needs a fix before we can go live.")}
+            {kept.length === 0
+              ? t("creatives.keepOne", "Keep at least one ad to launch.")
+              : t("creatives.fixFirst", "One ad needs a fix before we can go live.")}
           </p>
         )}
         <Button fullWidth size="lg" leftIcon="play" loading={busy} disabled={blocked} onClick={launch}>

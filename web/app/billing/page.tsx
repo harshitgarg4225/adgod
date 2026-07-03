@@ -30,6 +30,7 @@ export default function Billing() {
   const t = useT();
   const toast = useToast();
   const [tiers, setTiers] = useState<Tier[] | null>(null);
+  const [manualMode, setManualMode] = useState(false);
   const [sub, setSub] = useState<SubscriptionInfo | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +45,8 @@ export default function Billing() {
         api.subscription(),
         api.invoices().catch(() => []),
       ]);
-      setTiers(tt);
+      setTiers(tt.tiers);
+      setManualMode(tt.manual_mode);
       setSub(s);
       setInvoices(inv);
     } catch (e: any) {
@@ -150,19 +152,23 @@ export default function Billing() {
                 ))}
               </ul>
               <p className="mt-2 text-xs text-ink-faint">
-                {t("billing.gstTrial", "incl. 18% GST · 7-day free trial · cancel anytime")}
+                {manualMode
+                  ? t("billing.manualNote", "Billing is handled by your Salmor manager.")
+                  : t("billing.gstTrial", "incl. 18% GST · 7-day free trial · cancel anytime")}
               </p>
               <Button
                 fullWidth
                 variant={active ? "secondary" : popular ? "accent" : "primary"}
-                disabled={!!busy || active}
+                disabled={!!busy || active || manualMode}
                 loading={busy === tier.tier}
                 className="mt-3"
                 onClick={() => subscribe(tier.tier)}
               >
                 {active
                   ? t("billing.current", "Current plan")
-                  : t("billing.choosePlan", "Choose plan")}
+                  : manualMode
+                    ? t("billing.contactManager", "Talk to your manager")
+                    : t("billing.choosePlan", "Choose plan")}
               </Button>
             </Card>
           );

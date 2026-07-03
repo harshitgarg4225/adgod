@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, enterClient } from "@/lib/api";
 import type { AdminAccount, AnomalyEvent, FeatureFlag } from "@/lib/types";
 import { ErrorState, Loading, TopBar } from "@/components/ui";
 
@@ -69,15 +69,35 @@ export default function Admin() {
                     <p className="text-xs text-slate-500">
                       {a.phase} · {a.autopilot} · trust {a.trust_score}
                     </p>
+                    <p className="mt-0.5 text-xs text-slate-600">
+                      Today: {(a as any).today_spend_display ?? "₹0"} · leads {(a as any).leads_today ?? 0}
+                      {" · "}
+                      <span className={(a as any).meta_status === "ERROR" ? "font-semibold text-rose-600" : ""}>
+                        Meta {(a as any).meta_status ?? "NONE"}
+                      </span>
+                    </p>
                   </div>
                 </div>
                 <div className="mt-2 flex gap-2">
                   <button onClick={() => pause(a.id)} className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700">
                     Pause
                   </button>
-                  <button onClick={() => api.adminImpersonate(a.id).then(() => setMsg("Impersonation token issued (audited)"))}
+                  <button
+                    onClick={() =>
+                      api.adminImpersonate(a.id).then((r) => {
+                        // Swap into the client's session (audited server-side) — same
+                        // machinery the partner console uses.
+                        enterClient(r.access, a.id, a.business_name);
+                        router.push("/dashboard");
+                      })
+                    }
                     className="rounded-lg border px-3 py-1.5 text-xs font-medium">
-                    Impersonate
+                    Open as client
+                  </button>
+                  <button
+                    onClick={() => api.adminMarkPaid(a.id).then(() => setMsg("Marked paid (ACTIVE)")).catch((e: any) => setMsg(e.userMessage || "No subscription"))}
+                    className="rounded-lg border px-3 py-1.5 text-xs font-medium">
+                    Mark paid
                   </button>
                 </div>
               </li>
@@ -94,11 +114,17 @@ export default function Admin() {
               {anomalies.map((e) => (
                 <li key={e.id} className="rounded-xl border p-2 text-sm">
                   <span className="font-medium text-rose-600">{e.severity}</span> ·{" "}
+                  <span className="font-medium">{(e as any).business_name ?? "?"}</span> ·{" "}
                   {String((e.detail as any).reason ?? "anomaly")} · {e.action_taken}
                 </li>
               ))}
             </ul>
           )}
+        </div>
+
+        <div>
+          <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">Daily digest</h2>
+          <DigestPanel />
         </div>
 
         <div>
@@ -121,5 +147,42 @@ export default function Admin() {
         </div>
       </section>
     </main>
+  );
+}
+
+function DigestPanel() {
+  const [digest, setDigest] = useState<{ date: string; clients: any[] } | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.adminDigest().then(setDigest).catch(() => setDigest({ date: "", clients: [] }));
+  }, []);
+
+  if (!digest) return <p className="text-sm text-slate-400">Loading…</p>;
+  if (digest.clients.length === 0)
+    return <p className="text-sm text-slate-400">No live clients yet.</p>;
+  return (
+    <ul className="space-y-2">
+      {digest.clients.map((c) => (
+        <li key={c.account_id} className="rounded-xl border p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <p className="font-semibold">{c.business_name}</p>
+            <button
+              className="rounded-lg border px-2 py-1 text-xs"
+              onClick={() => {
+                navigator.clipboard.writeText(c.text.replace(/\\n/g, "\n"));
+                setCopied(c.account_id);
+                setTimeout(() => setCopied(null), 1500);
+              }}
+            >
+              {copied === c.account_id ? "Copied ✓" : "Copy for WhatsApp"}
+            </button>
+          </div>
+          <p className="mt-1 text-slate-600">
+            Spend ₹{Math.round(c.spend_paise / 100)} · Enquiries {c.enquiries} · Qualified {c.qualified}
+          </p>
+        </li>
+      ))}
+    </ul>
   );
 }

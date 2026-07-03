@@ -44,6 +44,17 @@ class MetaAdapter:
         ad sets by name."""
         raise NotImplementedError
 
+    def list_ads(self, *, meta_adset_id: str) -> list[dict]:
+        """[{'id', 'name'}] for the ad set — the resume path skips already-created ads
+        by name (retries must not stack duplicate ads)."""
+        raise NotImplementedError
+
+    def get_ad_statuses(self, *, meta_ids: list[str]) -> dict[str, str]:
+        """meta_ad_id → effective_status (ACTIVE / DISAPPROVED / WITH_ISSUES / ...).
+        Meta review rejections are silent otherwise — the optimizer sweeps this so a
+        rejected ad surfaces as an alert instead of a mystery zero-spend day."""
+        raise NotImplementedError
+
     def create_adset(
         self, *, ad_account_id: str, campaign_id: str, name: str, targeting: dict,
         daily_budget_paise: int, optimization_goal: str, promoted_object: dict,

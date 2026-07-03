@@ -172,8 +172,10 @@ export default function LeadPage() {
         )}
       </section>
 
-      {/* In-app compose (owner takeover within the 24h window) */}
-      <section className="px-4 pt-4">
+      {/* In-app compose (owner takeover within the 24h window). Hidden on the
+          own-number path — every send would fail there; wa.me/call below are the
+          real actions. */}
+      <section className={lead.can_message ? "px-4 pt-4" : "hidden"}>
         <div className="flex items-end gap-2">
           <textarea
             value={reply}

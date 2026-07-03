@@ -144,6 +144,27 @@ export default function Dashboard() {
           <Skeleton className="h-16 w-full rounded-2xl" />
         )}
 
+        {/* The one human gate on the ASSISTED path: without this card a provisioned
+            owner has NO route to the approval screen and the launch stalls forever. */}
+        {home && ["PENDING_APPROVAL", "CREATIVE_GENERATED", "RESEARCHED"].includes(home.phase) && (
+          <Link
+            href="/onboarding/creatives"
+            className="block rounded-2xl bg-brand p-4 text-white shadow-brand transition active:scale-[0.99]"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-bold">
+                  {t("dashboard.approveCtaTitle", "Your ads are ready to review")}
+                </p>
+                <p className="mt-0.5 text-sm text-white/85">
+                  {t("dashboard.approveCtaHint", "Tap to approve them and go live")}
+                </p>
+              </div>
+              <Icon name="play" className="h-7 w-7 shrink-0" />
+            </div>
+          </Link>
+        )}
+
         {error && !home ? (
           <ErrorState message={error} onRetry={load} />
         ) : (
@@ -226,7 +247,11 @@ export default function Dashboard() {
             {t("common.seeAll", "See all")}
           </Link>
         </div>
-        {!leads ? (
+        {error && !leads ? (
+          <p className="rounded-xl bg-slate-50 p-3 text-sm text-ink-muted">
+            {t("dashboard.leadsUnavailable", "Couldn't load leads — pull to retry.")}
+          </p>
+        ) : !leads ? (
           <div className="space-y-2">
             <SkeletonCard />
             <SkeletonCard />
@@ -234,7 +259,11 @@ export default function Dashboard() {
         ) : leads.length === 0 ? (
           <EmptyState
             title={t("dashboard.noLeadsTitle", "No leads yet")}
-            hint={t("dashboard.noLeads", "Your ads are live — your first lead will appear here soon.")}
+            hint={
+              home && ["LIVE", "OPTIMIZING"].includes(home.phase)
+                ? t("dashboard.noLeads", "Your ads are live — your first lead will appear here soon.")
+                : t("dashboard.noLeadsPrelaunch", "Once your ads go live, leads will appear here.")
+            }
             icon="leads"
           />
         ) : (

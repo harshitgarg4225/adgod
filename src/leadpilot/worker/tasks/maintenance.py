@@ -149,6 +149,27 @@ def progress_accounts() -> dict:
     return advanced
 
 
+def _flag_dead_token(tenant_id, account_id, exc: Exception) -> None:
+    """A Graph auth failure (OAuth 190 / 401) means the System User token is dead —
+    flip the connection status so the admin fleet view shows a red Meta column instead
+    of the operator discovering it days later via a confused client."""
+    msg = str(exc)
+    if not ("code=190" in msg or "401" in msg or "OAuth" in msg):
+        return
+    try:
+        from sqlalchemy import select
+
+        from leadpilot.core.models import MetaConnection
+
+        with platform_session() as s:
+            conn = s.scalar(select(MetaConnection).where(
+                MetaConnection.account_id == account_id))
+            if conn is not None:
+                conn.status = "ERROR"
+    except Exception:  # noqa: BLE001
+        log.warning("token_flag_failed", account=str(account_id))
+
+
 def _record_progress_failure(tenant_id, account_id, phase: str, exc: Exception) -> None:
     """A swallowed warning is how five clients silently stall at SIGNED_UP — surface every
     progress failure in the admin anomaly queue instead."""
@@ -197,6 +218,8 @@ def poll_form_leads() -> dict:
         except Exception as exc:  # noqa: BLE001 - one account must not block the fleet
             log.warning("poll_form_leads_failed", account=str(account_id),
                         error=str(exc)[:200])
+            _record_progress_failure(tenant_id, account_id, "LEAD_POLL", exc)
+            _flag_dead_token(tenant_id, account_id, exc)
     if captured:
         log.info("poll_form_leads", captured=captured)
     return {"captured": captured}

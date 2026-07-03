@@ -54,6 +54,7 @@ def provision_client(
     owner_phone: str,
     owner_name: str | None = None,
     daily_budget_rupees: int = 500,
+    monthly_cap_rupees: int | None = None,
     language: str = "hi",
     autopilot: str = "ASSISTED",
     # Meta (agency: your System User token on the client's ad account)
@@ -113,7 +114,9 @@ def provision_client(
                       created_via="manual"))
         s.add(BusinessProfile(tenant_id=tenant_id, account_id=account_id, offer=business_name,
                               service_area_city=city, service_radius_km=10,
-                              daily_budget_paise=int(Paise.from_rupees(daily_budget_rupees))))
+                              daily_budget_paise=int(Paise.from_rupees(daily_budget_rupees)),
+                              monthly_cap_paise=int(Paise.from_rupees(monthly_cap_rupees))
+                              if monthly_cap_rupees else None))
         if ad_account_id and page_id:
             s.add(MetaConnection(
                 tenant_id=tenant_id, account_id=account_id, meta_business_id=meta_business_id,
@@ -168,6 +171,8 @@ def main() -> None:
     p.add_argument("--owner-phone", required=True)
     p.add_argument("--owner-name", default=None)
     p.add_argument("--daily-budget", type=int, default=500, help="rupees/day")
+    p.add_argument("--monthly-cap", type=int, default=None,
+                   help="hard monthly spend ceiling in rupees (recommended per client)")
     p.add_argument("--language", default="hi")
     p.add_argument("--autopilot", default="ASSISTED",
                    choices=[a.value for a in AutopilotLevel])
@@ -185,7 +190,7 @@ def main() -> None:
     out = provision_client(
         business_name=a.business, category=a.category, city=a.city,
         owner_phone=a.owner_phone, owner_name=a.owner_name, daily_budget_rupees=a.daily_budget,
-        language=a.language, autopilot=a.autopilot, meta_business_id=a.meta_business,
+        monthly_cap_rupees=a.monthly_cap, language=a.language, autopilot=a.autopilot, meta_business_id=a.meta_business,
         ad_account_id=a.ad_account, page_id=a.page, meta_token=a.meta_token,
         wa_mode=a.wa_mode, phone_number_id=a.phone_number_id,
         verify_meta=not a.skip_verify)

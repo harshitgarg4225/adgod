@@ -3,14 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, saveSession } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { Button, Icon, Input, SaathiAvatar } from "@/components/ui";
 
 const PHONE_RE = /^\+?[6-9]\d{9}$/;
 
 export default function Login() {
   const router = useRouter();
-  const t = useT();
+  const { t, locale, setLocale } = useI18n();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [step, setStep] = useState<"phone" | "code">("phone");
@@ -46,6 +46,15 @@ export default function Login() {
     try {
       const tk = await api.verifyOtp(normalized, code);
       saveSession(tk);
+      // Hindi-first: apply the account's stored language immediately (provisioned owners
+      // have locale=hi; without this the whole first run renders in English).
+      const userLocale = (tk.user as any)?.locale;
+      if (userLocale === "hi" || userLocale === "en") setLocale(userLocale);
+      // Route by role: an admin/partner has no owner account — /dashboard would bounce
+      // them straight back to /login in a loop.
+      const role = (tk.user as any)?.role;
+      if (role === "ADMIN" || role === "OPS") return router.replace("/admin");
+      if (role === "PARTNER") return router.replace("/partner");
       // New accounts (no business set up yet) land in onboarding; everyone else goes home.
       let dest = "/dashboard";
       try {
@@ -74,6 +83,21 @@ export default function Login() {
           </p>
         </div>
 
+        {/* Language — Hindi-first owners must not face an English wall on screen one */}
+        <div className="flex justify-center gap-2">
+          {([["hi", "हिन्दी"], ["en", "English"]] as const).map(([l, label]) => (
+            <button
+              key={l}
+              onClick={() => setLocale(l)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium ${
+                locale === l ? "bg-brand text-white" : "border border-slate-200 text-ink-soft"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* Form */}
         {step === "phone" ? (
           <div className="flex flex-col gap-4 animate-slide-up">
@@ -91,6 +115,21 @@ export default function Login() {
             <Button fullWidth size="lg" loading={busy} onClick={sendOtp}>
               {busy ? t("login.sending", "Sending…") : t("login.sendOtp", "Send OTP")}
             </Button>
+            <button
+              onClick={() => {
+                // Operator-minted codes (no SMS): jump straight to code entry — the
+                // send step failing must never block a code that already exists.
+                if (!phoneValid) {
+                  setError(t("login.invalidPhone", "Enter a valid 10-digit mobile number."));
+                  return;
+                }
+                setError(null);
+                setStep("code");
+              }}
+              className="text-sm font-medium text-ink-muted hover:text-ink"
+            >
+              {t("login.haveCode", "I already have a code")}
+            </button>
           </div>
         ) : (
           <div className="flex flex-col gap-4 animate-slide-up">

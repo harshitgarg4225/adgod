@@ -50,6 +50,8 @@ def main() -> None:
     print(f"✓ {out['role']} user {verb}: {out['phone']} (user_id {out['user_id']})")
     print("  Log in with this phone via OTP (or mint one: python -m "
           "leadpilot.scripts.mint_login --phone ...)")
+    print("  Back office: open /admin after logging in — fleet view, daily digest,")
+    print("  anomaly queue, impersonation.")
 
 
 if __name__ == "__main__":

@@ -46,13 +46,30 @@ def launch(tenant_id: str, account_id: str) -> list[str]:
 @app.task(name="leadpilot.optimizer.run")
 def optimize(tenant_id: str, account_id: str) -> int:
     t, a = _ids(tenant_id, account_id)
-    with tenant_session(t) as s:
-        decisions = pipeline.run_optimization(s, tenant_id=t, account_id=a)
+    try:
+        with tenant_session(t) as s:
+            decisions = pipeline.run_optimization(s, tenant_id=t, account_id=a)
+    except Exception as exc:
+        # Post-launch failures must be operator-visible (anomaly queue), not just a
+        # Celery log line — a silently-dead optimizer is unbounded spend.
+        _surface_failure(t, a, "OPTIMIZE", exc)
+        raise
     return len(decisions)
 
 
 @app.task(name="leadpilot.reporter.run")
 def report(tenant_id: str, account_id: str) -> str:
     t, a = _ids(tenant_id, account_id)
-    with tenant_session(t) as s:
-        return pipeline.run_report(s, tenant_id=t, account_id=a)
+    try:
+        with tenant_session(t) as s:
+            return pipeline.run_report(s, tenant_id=t, account_id=a)
+    except Exception as exc:
+        _surface_failure(t, a, "REPORT", exc)
+        raise
+
+
+def _surface_failure(tenant_id, account_id, phase: str, exc: Exception) -> None:
+    from leadpilot.worker.tasks.maintenance import _flag_dead_token, _record_progress_failure
+
+    _record_progress_failure(tenant_id, account_id, phase, exc)
+    _flag_dead_token(tenant_id, account_id, exc)

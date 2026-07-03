@@ -21,7 +21,10 @@ from leadpilot.bff.schemas import (
     MessageOut,
     NotificationOut,
 )
+from leadpilot.common.clock import ist_day_start, ist_week_start
 from leadpilot.common.errors import NotFoundError, ValidationError
+from leadpilot.common.phone import normalize_phone
+from leadpilot.common.ratelimit import enforce
 from leadpilot.core.db import tenant_session
 from leadpilot.core.enums import (
     AccountPhase,
@@ -115,14 +118,15 @@ def create_lead(
         raise ValidationError(f"Invalid score: {body.score}")
     if body.status and body.status not in {s.value for s in LeadStatus}:
         raise ValidationError(f"Invalid status: {body.status}")
+    phone = normalize_phone(body.wa_phone)
     with tenant_session(principal.tenant_id) as session:
         existing = session.scalar(select(Lead).where(
-            Lead.account_id == account_id, Lead.wa_phone == body.wa_phone))
+            Lead.account_id == account_id, Lead.wa_phone == phone))
         if existing is not None:
             return {"id": str(existing.id), "created": False}
         lead = Lead(
             tenant_id=principal.tenant_id, account_id=account_id, source_channel="MANUAL",
-            wa_phone=body.wa_phone, name=body.name, intent_summary=body.intent_summary,
+            wa_phone=phone, name=body.name, intent_summary=body.intent_summary,
             score=body.score, status=body.status or LeadStatus.NEW.value,
             first_msg_at=datetime.now(UTC),
         )
@@ -150,6 +154,12 @@ def get_lead(lead_id: str, principal: Principal = Depends(current_principal)) ->
                            status=m.status, created_at=m.created_at)
                 for m in msgs
             ]
+        # In-app WhatsApp replies only work with a Cloud API number + an open
+        # conversation window — hide the dead composer on the own-number path.
+        wa = session.scalar(select(WhatsAppConnection).where(
+            WhatsAppConnection.account_id == lead.account_id))
+        can_message = bool(wa and wa.mode == "CLOUD_API" and wa.phone_number_id
+                           and conv is not None)
         return LeadDetailOut(
             id=lead.id, name=lead.name, wa_phone=lead.wa_phone, score=lead.score,
             status=lead.status, intent_summary=lead.intent_summary,
@@ -157,6 +167,7 @@ def get_lead(lead_id: str, principal: Principal = Depends(current_principal)) ->
             location_signal=lead.location_signal, owner_action=lead.owner_action,
             source_channel=lead.source_channel, created_at=lead.created_at,
             qualified_at=lead.qualified_at, transcript=transcript,
+            can_message=can_message,
         )
 
 
@@ -194,6 +205,9 @@ def send_owner_message(
     valid inside the 24h service window; outside it we ask the owner to use a call/template
     instead of silently failing at Meta."""
     now = datetime.now(UTC)
+    # Cost control: WhatsApp sends cost money — bound a runaway/compromised session.
+    enforce("owner_msg", str(principal.account_id or principal.user_id),
+            limit=60, window_s=3600)
     with tenant_session(principal.tenant_id) as session:
         lead = session.get(Lead, lead_id)
         if lead is None:
@@ -233,7 +247,7 @@ def send_owner_message(
 @router.get("/accounts/{account_id}/home", response_model=HomeOut)
 def home(account_id: str, principal: Principal = Depends(current_principal)) -> HomeOut:
     require_account_access(principal, account_id)
-    start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = ist_day_start()  # business day = IST, matching the insight snapshots
     qualified = {LeadStatus.QUALIFIED_HOT.value, LeadStatus.QUALIFIED_WARM.value}
     with tenant_session(principal.tenant_id) as session:
         enquiries = session.scalar(
@@ -256,7 +270,7 @@ def home(account_id: str, principal: Principal = Depends(current_principal)) -> 
             )
         ) or 0)
         # Last 7 days spend, oldest→newest, for the dashboard sparkline.
-        week_start = start - timedelta(days=6)
+        week_start = ist_week_start()
         per_day = dict(session.execute(
             select(func.date(AdInsight.date), func.coalesce(func.sum(AdInsight.spend_paise), 0))
             .where(AdInsight.account_id == account_id, AdInsight.level == "ACCOUNT",

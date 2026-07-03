@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from leadpilot.bff.deps import Principal, current_principal
+from leadpilot.common.config import settings
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.core.db import tenant_session
 from leadpilot.core.enums import SubscriptionStatus, SubscriptionTier, WalletEntryType
@@ -193,10 +194,13 @@ def invoice_document(
 
 
 @router.get("/tiers")
-def tiers() -> list[dict]:
+def tiers() -> dict:
+    """Plans + billing mode. manual_mode=True (Razorpay mocked/not activated) means the
+    founder bills by hand — the UI must not offer a self-serve subscribe that would start
+    a mock trial trial_sweep later pauses."""
     out = []
     for t in SubscriptionTier:
         base, gst, total = with_gst(TIER_PRICE_PAISE[t.value])
         out.append({"tier": t.value, "price_paise": base, "gst_paise": gst,
                     "total_paise": total, "price_display": format_paise(total)})
-    return out
+    return {"tiers": out, "manual_mode": settings.mock_razorpay}

@@ -32,12 +32,16 @@ export default function Reports() {
     if (!account) return router.replace("/login");
     setError(null);
     try {
-      const [rep, ins, dec] = await Promise.all([
-        api.runReport(account),
+      // Stats come from data that already exists; the Saathi summary is the latest
+      // nightly REPORT notification. Never POST report/run per visit — in queued mode
+      // that returns no message (permanent spinner) and it burns an LLM call per view.
+      const [ins, dec, notifs] = await Promise.all([
         api.insights(account),
         api.decisions(account),
+        api.notifications(account).catch(() => []),
       ]);
-      setMessage(rep.message);
+      const latestReport = (notifs as any[]).find((n) => n.kind === "REPORT");
+      setMessage(latestReport?.body ?? "");
       setInsights(ins);
       setDecisions(dec);
     } catch (e: any) {
@@ -56,7 +60,7 @@ export default function Reports() {
         <ErrorState message={error} onRetry={load} />
       </main>
     );
-  if (message == null || !insights || !decisions)
+  if (!insights || !decisions)
     return <Loading label={t("reports.preparing", "Preparing your report…")} />;
 
   // Sum ADSET rows only — ACCOUNT rows are rollups of the same money and would double it.

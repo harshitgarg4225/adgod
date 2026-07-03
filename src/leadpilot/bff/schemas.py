@@ -73,6 +73,8 @@ class LeadDetailOut(BaseModel):
     created_at: datetime
     qualified_at: datetime | None
     transcript: list[MessageOut]
+    # False on the own-number path (no Cloud API) — the UI hides the reply composer.
+    can_message: bool = False
 
 
 class LeadPatch(BaseModel):

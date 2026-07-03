@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, getUser } from "@/lib/api";
+import { api, API_BASE, getToken, getUser } from "@/lib/api";
 import type { LeadListItem } from "@/lib/types";
 import { useT } from "@/lib/i18n";
 import {
@@ -12,12 +12,16 @@ import {
   EmptyState,
   ErrorState,
   Icon,
+  Input,
   OfflineBanner,
   ScoreBadge,
+  Sheet,
   SkeletonCard,
   TopBar,
   useToast,
 } from "@/components/ui";
+
+const PHONE_RE = /^\+?[6-9]\d{9}$/;
 
 type Filter = { key: string; en: string; score?: string; status?: string };
 
@@ -37,18 +41,33 @@ export default function LeadsInbox() {
   const [newNote, setNewNote] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+
+  function closeAdd() {
+    setAdding(false);
+    setNewName(""); setNewPhone(""); setNewNote("");
+    setPhoneError(null);
+  }
+
   async function addLead() {
     const account = getUser()?.account_id;
-    if (!account || !newPhone.trim()) return;
+    if (!account) return;
+    // Same validation + +91 normalization as the login screen: an unnormalized number
+    // breaks the wa.me deep link and creates duplicate leads.
+    const bare = newPhone.replace(/^\+91/, "").replace(/[\s-]/g, "");
+    if (!PHONE_RE.test(bare)) {
+      setPhoneError(t("login.invalidPhone", "Enter a valid 10-digit mobile number."));
+      return;
+    }
+    const normalized = bare.startsWith("+") ? bare : `+91${bare.replace(/^91/, "")}`;
     setSaving(true);
     try {
       await api.createLead(account, {
         name: newName.trim() || undefined,
-        wa_phone: newPhone.trim(),
+        wa_phone: normalized,
         intent_summary: newNote.trim() || undefined,
       });
-      setAdding(false);
-      setNewName(""); setNewPhone(""); setNewNote("");
+      closeAdd();
       toast.show(t("leads.added", "Lead added"), "success");
       load();
     } catch (e: any) {
@@ -59,10 +78,10 @@ export default function LeadsInbox() {
   }
 
   const filters: Filter[] = [
-    { key: "all", en: "All" },
-    { key: "hot", en: "Hot", score: "HOT" },
-    { key: "warm", en: "Warm", score: "WARM" },
-    { key: "won", en: "Won", status: "WON" },
+    { key: "all", en: t("leads.filterAll", "All") },
+    { key: "hot", en: t("leads.filterHot", "Hot"), score: "HOT" },
+    { key: "warm", en: t("leads.filterWarm", "Warm"), score: "WARM" },
+    { key: "won", en: t("leads.filterWon", "Won"), status: "WON" },
   ];
 
   const load = useCallback(async () => {
@@ -100,6 +119,26 @@ export default function LeadsInbox() {
         right={
           <div className="flex items-center gap-1">
             <button
+              onClick={async () => {
+                // Streamed, RLS-scoped export — hand the list to a telecaller.
+                const account = getUser()?.account_id;
+                if (!account) return;
+                const res = await fetch(`${API_BASE}/accounts/${account}/leads/export.csv`, {
+                  headers: { Authorization: `Bearer ${getToken()}` },
+                });
+                const blob = await res.blob();
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = "leads.csv";
+                a.click();
+                URL.revokeObjectURL(a.href);
+              }}
+              aria-label={t("leads.export", "Export CSV")}
+              className="flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-slate-100"
+            >
+              <Icon name="download" />
+            </button>
+            <button
               onClick={() => setAdding(true)}
               aria-label={t("leads.add", "Add lead")}
               className="flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-slate-100"
@@ -117,40 +156,35 @@ export default function LeadsInbox() {
         }
       />
 
-      {adding && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setAdding(false)}>
-          <div
-            className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-8"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="pb-3 text-lg font-semibold">{t("leads.add", "Add lead")}</h2>
-            <div className="space-y-3">
-              <input
-                value={newPhone}
-                onChange={(e) => setNewPhone(e.target.value)}
-                placeholder={t("leads.addPhone", "WhatsApp number *")}
-                inputMode="tel"
-                className="w-full rounded-xl border border-slate-200 bg-white py-3 px-4 text-base focus:border-brand"
-              />
-              <input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder={t("leads.addName", "Name")}
-                className="w-full rounded-xl border border-slate-200 bg-white py-3 px-4 text-base focus:border-brand"
-              />
-              <input
-                value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
-                placeholder={t("leads.addNote", "What do they want? (optional)")}
-                className="w-full rounded-xl border border-slate-200 bg-white py-3 px-4 text-base focus:border-brand"
-              />
-              <Button fullWidth loading={saving} disabled={!newPhone.trim()} onClick={addLead}>
-                {t("leads.addSave", "Save lead")}
-              </Button>
-            </div>
-          </div>
+      <Sheet open={adding} onClose={closeAdd} title={t("leads.add", "Add lead")}>
+        <div className="space-y-3">
+          <Input
+            label={t("leads.addPhone", "WhatsApp number")}
+            name="lead_phone"
+            value={newPhone}
+            onChange={(e) => { setNewPhone(e.target.value); setPhoneError(null); }}
+            inputMode="tel"
+            autoFocus
+            placeholder="98765 43210"
+            error={phoneError ?? undefined}
+          />
+          <Input
+            label={t("leads.addName", "Name")}
+            name="lead_name"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <Input
+            label={t("leads.addNote", "What do they want? (optional)")}
+            name="lead_note"
+            value={newNote}
+            onChange={(e) => setNewNote(e.target.value)}
+          />
+          <Button fullWidth loading={saving} disabled={!newPhone.trim()} onClick={addLead}>
+            {t("leads.addSave", "Save lead")}
+          </Button>
         </div>
-      )}
+      </Sheet>
 
       {/* Search */}
       <div className="px-4 pt-3">

@@ -18,18 +18,21 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # Guarded (IF NOT EXISTS) like 0007/0008: migration 0001 builds the schema from
+    # CURRENT ORM metadata, so a fresh database already has this column/index and an
+    # unguarded add_column would abort the whole upgrade (verified: fresh-DB DOA).
     # Instant-Form intake (webhook + polling) dedups on the Meta leadgen id instead of
     # abusing wa_phone as a carrier for it.
-    op.add_column("leads", sa.Column("leadgen_id", sa.String(60), nullable=True))
-    op.create_index("ix_leads_leadgen_id", "leads", ["leadgen_id"])
+    op.execute("ALTER TABLE leads ADD COLUMN IF NOT EXISTS leadgen_id VARCHAR(60)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_leads_leadgen_id ON leads (leadgen_id)")
     op.execute(
-        "CREATE UNIQUE INDEX uq_leads_account_leadgen ON leads (account_id, leadgen_id) "
-        "WHERE leadgen_id IS NOT NULL"
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_leads_account_leadgen "
+        "ON leads (account_id, leadgen_id) WHERE leadgen_id IS NOT NULL"
     )
     # Launch races (cron + owner click) must not stack open campaigns: the second claim
     # insert violates this index and the loser resumes the winner's campaign on retry.
     op.execute(
-        "CREATE UNIQUE INDEX uq_campaigns_one_open ON campaigns (account_id) "
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_campaigns_one_open ON campaigns (account_id) "
         "WHERE status IN ('IN_REVIEW', 'ACTIVE')"
     )
 

@@ -17,7 +17,10 @@ from leadpilot.common.config import settings
 # E.164-ish phone, emails, and long bearer-ish tokens.
 _PHONE_RE = re.compile(r"\+?\d[\d\s\-]{7,}\d")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
-_TOKEN_RE = re.compile(r"(?i)(bearer\s+)?[A-Za-z0-9_\-]{24,}\.?[A-Za-z0-9_\-]*")
+# Token shapes that must never reach logs even inside free text: Meta tokens (EAA…),
+# explicit Bearer credentials, and very long continuous secrets (UUIDs are 36 chars with
+# dashes, so the 60+ rule can't eat entity ids).
+_TOKEN_RE = re.compile(r"EAA[A-Za-z0-9]{16,}|(?i:bearer)\s+\S{16,}|[A-Za-z0-9_\-]{60,}")
 # Keys whose values are phone numbers → mask to last 4.
 _PHONE_KEYS = {"phone", "wa_phone", "to", "from", "from_phone", "display_phone"}
 # Keys whose values are secrets → drop entirely.
@@ -27,13 +30,15 @@ _SECRET_KEYS = {
 }
 # Keys whose values are free text that may carry PII → scrub emails/phones inline.
 _FREETEXT_KEYS = {"body", "text", "message", "reply", "detail", "note", "intent",
-                  "offer", "primary_text", "headline", "description"}
+                  "offer", "primary_text", "headline", "description", "error"}
 
 
 def redact_text(value: str) -> str:
-    """Redact PII from a free-text string."""
+    """Redact PII and credential-shaped strings from free text (error slices included —
+    a Graph error message must never carry a token into the logs)."""
     if not value:
         return value
+    value = _TOKEN_RE.sub("[token]", value)
     value = _EMAIL_RE.sub("[email]", value)
     value = _PHONE_RE.sub("[phone]", value)
     return value
