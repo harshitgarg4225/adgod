@@ -46,6 +46,29 @@ class Msg91OtpProvider(OtpProvider):  # pragma: no cover - requires key
         log.info("otp_sent", phone=phone)
 
 
+def send_lead_alert(*, phone: str, lead_name: str, lead_phone: str) -> bool:
+    """Lead-alert SMS via MSG91's Flow API (DLT template — free-text SMS never delivers
+    in India). No-ops safely when unconfigured/mocked; alerts are best-effort."""
+    if settings.mock_otp or not (settings.msg91_api_key and settings.msg91_lead_flow_id):
+        log.info("lead_alert_skipped", configured=bool(settings.msg91_lead_flow_id))
+        return False
+    try:  # pragma: no cover - requires key
+        resp = httpx.post(
+            "https://control.msg91.com/api/v5/flow",
+            headers={"authkey": settings.msg91_api_key},
+            json={"template_id": settings.msg91_lead_flow_id,
+                  "recipients": [{"mobiles": phone.lstrip("+"),
+                                  "var1": (lead_name or "New lead")[:30],
+                                  "var2": lead_phone[:15]}]},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        return resp.json().get("type") == "success"
+    except Exception as exc:  # noqa: BLE001 - alerting must never break anything
+        log.warning("lead_alert_failed", error=str(exc)[:150])
+        return False
+
+
 def get_otp_provider() -> OtpProvider:
     if settings.mock_otp:
         return MockOtpProvider()

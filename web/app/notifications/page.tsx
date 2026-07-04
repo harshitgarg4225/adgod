@@ -22,9 +22,16 @@ const KIND_HREF: Record<string, string> = {
   CREATIVE_READY: "/onboarding/creatives",
   APPROVAL: "/onboarding/creatives",
   HOT_LEAD: "/leads",
+  CAMPAIGN_LIVE: "/ads",
   REPORT: "/reports",
   BILLING: "/billing",
 };
+
+// A hot lead should open THAT lead, not the list.
+function hrefFor(n: Notification): string | undefined {
+  if (n.kind === "HOT_LEAD" && n.ref_id) return `/leads/${n.ref_id}`;
+  return KIND_HREF[n.kind];
+}
 
 export default function NotificationsPage() {
   const router = useRouter();
@@ -74,8 +81,8 @@ export default function NotificationsPage() {
           {items.map((n) => (
             <li
               key={n.id}
-              className={`flex gap-3 py-3.5 ${KIND_HREF[n.kind] ? "cursor-pointer active:bg-slate-50" : ""}`}
-              onClick={() => KIND_HREF[n.kind] && router.push(KIND_HREF[n.kind])}
+              className={`flex gap-3 py-3.5 ${hrefFor(n) ? "cursor-pointer active:bg-slate-50" : ""}`}
+              onClick={() => { const h = hrefFor(n); if (h) router.push(h); }}
             >
               <div
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${

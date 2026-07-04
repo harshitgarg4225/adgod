@@ -72,6 +72,10 @@ app.conf.beat_schedule = {
         "task": "leadpilot.workflow.progress_accounts",
         "schedule": 600.0,  # every 10 min — a backstop; onboarding also drives these
     },
+    "auto-approve-pending": {  # autopilot-with-veto: launch unless the owner intervened
+        "task": "leadpilot.approvals.auto_approve",
+        "schedule": crontab(minute="*/30"),
+    },
     "poll-form-leads": {  # review-free Instant-Form intake via owned-asset Graph reads
         "task": "leadpilot.leads.poll_form_leads",
         "schedule": 600.0,  # every 10 min — leads are perishable, call within minutes

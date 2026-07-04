@@ -10,7 +10,7 @@ export default function Connect() {
   const router = useRouter();
   const t = useT();
   const toast = useToast();
-  const [mode, setMode] = useState<"APP_DESTINATION" | "CLOUD_API">("APP_DESTINATION");
+  const [mode, setMode] = useState<"APP_DESTINATION" | "CLOUD_API" | "CALL">("APP_DESTINATION");
   const [phone, setPhone] = useState("");
   const [phoneNumberId, setPhoneNumberId] = useState("");
   const [adAccount, setAdAccount] = useState("");
@@ -22,7 +22,7 @@ export default function Connect() {
     setBusy(true);
     try {
       await api.connectWhatsApp(
-        mode === "APP_DESTINATION" ? { mode, phone } : { mode, phone_number_id: phoneNumberId }
+        mode === "CLOUD_API" ? { mode, phone_number_id: phoneNumberId } : { mode, phone }
       );
       if (adAccount && pageId) {
         await api.connectMeta({ meta_business_id: adAccount, ad_account_id: adAccount, page_id: pageId });
@@ -36,7 +36,9 @@ export default function Connect() {
     }
   }
 
-  const canContinue = mode === "APP_DESTINATION" ? phone.trim().length >= 6 : phoneNumberId.trim().length > 0;
+  const canContinue = mode === "CLOUD_API"
+    ? phoneNumberId.trim().length > 0
+    : phone.trim().length >= 6;
 
   return (
     <main className="min-h-[100dvh] pb-28">
@@ -56,6 +58,13 @@ export default function Connect() {
               sub={t("connect.ownWaSub", "Ads open a chat on your existing number. No setup, live this week.")}
             />
             <Choice
+              active={mode === "CALL"}
+              onClick={() => setMode("CALL")}
+              icon="phone"
+              title={t("connect.calls", "Phone calls")}
+              sub={t("connect.callsSub", "Customers tap the ad and call you directly.")}
+            />
+            <Choice
               active={mode === "CLOUD_API"}
               onClick={() => setMode("CLOUD_API")}
               icon="sparkle"
@@ -65,9 +74,11 @@ export default function Connect() {
           </div>
         </div>
 
-        {mode === "APP_DESTINATION" ? (
+        {mode !== "CLOUD_API" ? (
           <Input
-            label={t("connect.yourWa", "Your WhatsApp number")}
+            label={mode === "CALL"
+              ? t("connect.yourPhone", "Your phone number (for calls)")
+              : t("connect.yourWa", "Your WhatsApp number")}
             inputMode="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}

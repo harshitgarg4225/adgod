@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     msg91_api_key: str | None = None
     # DLT-registered OTP template id — mandatory for OTP SMS delivery in India.
     msg91_template_id: str | None = None
+    # DLT-registered Flow template for lead-alert SMS ("New lead: {#var#} {#var#} ...").
+    # Unset → lead alerts silently no-op (arbitrary-text SMS does not deliver under DLT).
+    msg91_lead_flow_id: str | None = None
+    sms_alert_daily_cap: int = 10  # per account per day — SMS costs real money
 
     # Observability
     sentry_dsn: str | None = None

@@ -121,6 +121,13 @@ def mark_subscription_paid(
         before = sub.status
         sub.status = SubscriptionStatus.ACTIVE.value
         sub.current_period_end = datetime.now(UTC) + timedelta(days=30)
+        # Paying un-pauses a trial pause (never an owner's deliberate pause).
+        acc = s.get(Account, account_id)
+        if acc is not None and acc.phase == AccountPhase.PAUSED.value \
+                and acc.pause_reason == "trial":
+            from leadpilot.saathi.pipeline import set_live_state
+
+            set_live_state(s, tenant_id=acc.tenant_id, account_id=acc.id, pause=False)
         _audit(s, actor=f"user:{principal.user_id}", action="subscription_mark_paid",
                entity="subscription", entity_id=str(sub.id), tenant_id=sub.tenant_id,
                before={"status": before}, after={"status": sub.status},
@@ -156,7 +163,13 @@ def pause_account(
         if acc is None:
             raise NotFoundError("Account not found")
         before = acc.phase
-        acc.phase = AccountPhase.PAUSED.value
+        from leadpilot.saathi.pipeline import set_live_state
+
+        # Pauses Meta delivery too — an admin pause that leaves the campaign spending
+        # is not a pause. Falls back to a bare phase flip pre-launch.
+        if not set_live_state(s, tenant_id=acc.tenant_id, account_id=acc.id,
+                              pause=True, reason="admin"):
+            acc.phase = AccountPhase.PAUSED.value
         for camp in s.scalars(select(Campaign).where(Campaign.account_id == acc.id)).all():
             camp.status = CampaignStatus.PAUSED.value
         _audit(s, actor=f"user:{principal.user_id}", action="account_pause", entity="account",

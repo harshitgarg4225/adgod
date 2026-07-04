@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from leadpilot.bff.deps import Principal, current_principal, require_account_access
 from leadpilot.bff.routers.settings import month_to_date_spend
@@ -16,9 +16,7 @@ from leadpilot.common.config import settings
 from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.common.ratelimit import enforce
 from leadpilot.core.db import tenant_session
-from leadpilot.core.enums import AccountPhase
 from leadpilot.core.models import (
-    Account,
     AdInsight,
     Angle,
     Approval,
@@ -244,6 +242,63 @@ def list_decisions(account_id: str, principal: Principal = Depends(current_princ
                  "applied": d.applied} for d in rows]
 
 
+@router.get("/accounts/{account_id}/ads-summary")
+def ads_summary(account_id: str, principal: Principal = Depends(current_principal)) -> dict:
+    """Everything the owner needs to SEE their ads running: the live campaign, a
+    review-status rollup (running / in Meta review / rejected), and the approved
+    creatives each with its own status chip. Read-only; no raw enums."""
+    from leadpilot.core.models import Ad, AdSet
+
+    require_account_access(principal, account_id)
+    with tenant_session(principal.tenant_id) as s:
+        campaign = s.scalar(
+            select(Campaign).where(Campaign.account_id == account_id)
+            .order_by(Campaign.created_at.desc()))
+        ads = s.scalars(select(Ad).where(Ad.account_id == account_id)).all()
+        counts = {"active": 0, "in_review": 0, "rejected": 0}
+        by_creative: dict[str, str] = {}
+        for ad in ads:
+            rs = (ad.review_status or "IN_REVIEW").upper()
+            if rs in ("DISAPPROVED", "WITH_ISSUES"):
+                counts["rejected"] += 1
+                bucket = "rejected"
+            elif rs in ("ACTIVE", "APPROVED"):
+                counts["active"] += 1
+                bucket = "active"
+            else:
+                counts["in_review"] += 1
+                bucket = "in_review"
+            # A creative may back several ads (one per tier) — surface the worst state.
+            prev = by_creative.get(str(ad.creative_id))
+            rank = {"rejected": 2, "in_review": 1, "active": 0}
+            if prev is None or rank[bucket] > rank[prev]:
+                by_creative[str(ad.creative_id)] = bucket
+        creatives = s.scalars(select(Creative).where(
+            Creative.account_id == account_id,
+            Creative.approval_status == "APPROVED_FOR_LAUNCH")).all()
+        adset_count = s.scalar(
+            select(func.count(AdSet.id)).where(
+                AdSet.account_id == account_id, AdSet.status == "ACTIVE")) or 0
+        from leadpilot.core.models import WhatsAppConnection
+
+        wa_mode = s.scalar(select(WhatsAppConnection.mode).where(
+            WhatsAppConnection.account_id == account_id))
+        return {
+            "campaign": {
+                "status": campaign.status,
+                "daily_budget_paise": campaign.daily_budget_paise,
+                "destination": "call" if wa_mode == "CALL" else "whatsapp",
+            } if campaign else None,
+            "counts": counts,
+            "active_adsets": int(adset_count),
+            "creatives": [{
+                "id": str(c.id), "headline": c.headline, "primary_text": c.primary_text,
+                "asset_url": c.asset_url, "thumb_url": c.thumb_url, "format": c.format,
+                "review": by_creative.get(str(c.id), "in_review"),
+            } for c in creatives],
+        }
+
+
 @router.get("/accounts/{account_id}/insights")
 def insights(
     account_id: str, limit: int = Query(default=50, le=200),
@@ -294,17 +349,9 @@ def decide_approval(
         require_account_access(principal, str(ap.account_id))
         ap.status = "APPROVED" if approve else "REJECTED"
         # Approving a creative batch promotes its creatives to launch-ready AND moves the
-        # account out of PENDING_APPROVAL — otherwise the launch cron never picks it up
-        # and an approved account waits forever.
+        # account out of PENDING_APPROVAL. Veto-preserving: only DRAFT creatives promote —
+        # ads the owner explicitly removed stay removed.
         if approve and ap.kind == "CREATIVE_BATCH":
-            promoted = 0
-            for cid in ap.payload.get("creative_ids", []):
-                c = s.get(Creative, cid)
-                if c is not None and c.compliance_status == "PASSED":
-                    c.approval_status = "APPROVED_FOR_LAUNCH"
-                    promoted += 1
-            if promoted:
-                account = s.get(Account, ap.account_id)
-                if account is not None and account.phase == AccountPhase.PENDING_APPROVAL.value:
-                    account.phase = AccountPhase.APPROVED.value
+            pipeline.approve_creative_batch(
+                s, tenant_id=principal.tenant_id, account_id=ap.account_id, approval=ap)
         return {"ok": True, "status": ap.status}

@@ -73,6 +73,15 @@ class Account(Base, TimestampMixin):
     timezone: Mapped[str] = mapped_column(String(40), default="Asia/Kolkata")
     target_cpql_paise: Mapped[int] = mapped_column(BigInteger, default=20000)
     created_via: Mapped[str | None] = mapped_column(String(40))
+    # Autopilot-with-veto: creatives auto-approve this many hours after generation on the
+    # ASSISTED level (0 = wait for the owner forever). FULL skips approval entirely;
+    # MANUAL never auto-approves.
+    auto_approve_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=6)
+    # Pause provenance: who paused (owner/trial/emergency/admin) decides who may resume
+    # (e.g. a payment un-pauses trial pauses but never an owner's deliberate pause), and
+    # which phase to restore.
+    pause_reason: Mapped[str | None] = mapped_column(String(20))
+    phase_before_pause: Mapped[str | None] = mapped_column(String(30))
     # India B2B invoicing details (GST-compliant invoices).
     gstin: Mapped[str | None] = mapped_column(String(20))
     legal_name: Mapped[str | None] = mapped_column(String(200))

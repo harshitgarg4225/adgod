@@ -228,6 +228,11 @@ class Orchestrator:
                            intent=lead.intent_summary or "your service"),
                     ref_id=lead.id,
                 )
+                # The owner lives on their phone: a hot lead earns an SMS, not just a
+                # bell-icon row they may see tomorrow.
+                from leadpilot.worker.tasks.alerts import enqueue_lead_alert
+
+                enqueue_lead_alert(tenant_id, account_id, lead.id)
 
         return InboundResult(lead.id, conversation.id, sent=True, blocked=False,
                              score=output.score.value if output.score else None,

@@ -21,10 +21,20 @@ import {
   useToast,
 } from "@/components/ui";
 
+// Owner language, not engineer language. ASSISTED = autopilot with a veto window
+// (ads self-launch after a few hours unless the owner intervenes); MANUAL = wait for
+// the owner forever. FULL (auto-approve immediately) is earned via trust, not chosen here.
 const AUTOPILOT: { value: string; en: string; desc: string }[] = [
-  { value: "MANUAL", en: "Manual", desc: "Saathi suggests; you approve every change." },
-  { value: "ASSISTED", en: "Assisted", desc: "Saathi acts on small changes, asks for big ones." },
-  { value: "FULL", en: "Full", desc: "Saathi runs everything within your budget." },
+  {
+    value: "ASSISTED",
+    en: "Saathi launches automatically",
+    desc: "You get a few hours to review new ads — then Saathi launches them for you.",
+  },
+  {
+    value: "MANUAL",
+    en: "Ask me first",
+    desc: "Nothing goes live until you tap Approve.",
+  },
 ];
 
 export default function SettingsPage() {
@@ -211,7 +221,9 @@ export default function SettingsPage() {
           </h2>
           <div className="space-y-2">
             {AUTOPILOT.map((a) => {
-              const on = s.autopilot_level === a.value;
+              const on = a.value === "ASSISTED"
+                ? s.autopilot_level === "ASSISTED" || s.autopilot_level === "FULL"
+                : s.autopilot_level === a.value;
               return (
                 <button
                   key={a.value}

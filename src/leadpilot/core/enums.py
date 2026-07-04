@@ -38,8 +38,9 @@ class UserRole(StrEnum):
 
 
 class WhatsAppMode(StrEnum):
-    APP_DESTINATION = "APP_DESTINATION"
-    CLOUD_API = "CLOUD_API"
+    APP_DESTINATION = "APP_DESTINATION"  # CTWA into the owner's own WhatsApp app
+    CLOUD_API = "CLOUD_API"              # CTWA into a Cloud API number (AI Closer runs)
+    CALL = "CALL"                        # click-to-call ads — customers dial the owner
 
 
 class Channel(StrEnum):

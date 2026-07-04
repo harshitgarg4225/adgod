@@ -42,6 +42,81 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "{name} is interested in {intent}. Reply now on WhatsApp.",
         "hi": "{name} को {intent} में दिलचस्पी है। अभी WhatsApp पर जवाब दें।",
     },
+    # ── Account phase, in the owner's words (HomeOut.campaign_status chips) ──
+    "phase.SIGNED_UP": {"en": "Finish setup", "hi": "सेटअप पूरा करें"},
+    "phase.ONBOARDING": {"en": "Finishing setup", "hi": "सेटअप हो रहा है"},
+    "phase.RESEARCHED": {"en": "Preparing your ads", "hi": "आपके ऐड्स की तैयारी"},
+    "phase.CREATIVE_GENERATED": {"en": "Ads being designed", "hi": "ऐड्स बन रहे हैं"},
+    "phase.PENDING_APPROVAL": {"en": "Ready for your review", "hi": "आपके रिव्यू का इंतज़ार"},
+    "phase.APPROVED": {"en": "Launching soon", "hi": "जल्द लॉन्च होंगे"},
+    "phase.LAUNCHING": {"en": "Launching", "hi": "लॉन्च हो रहे हैं"},
+    "phase.LIVE": {"en": "Live", "hi": "चालू"},
+    "phase.OPTIMIZING": {"en": "Live · Optimizing", "hi": "चालू · सुधार जारी"},
+    "phase.FATIGUE_REFRESH": {"en": "Live · Refreshing ads", "hi": "चालू · नए ऐड्स"},
+    "phase.PAUSED": {"en": "Paused", "hi": "रुका हुआ"},
+    "phase.CHURNED": {"en": "Account closed", "hi": "खाता बंद"},
+    # ── Saathi's one-line status (the most-read sentence in the product) ──
+    "saathi.setup": {
+        "en": "Let's finish setting up so I can start finding leads for you.",
+        "hi": "सेटअप पूरा करें, फिर मैं आपके लिए ग्राहक ढूँढना शुरू करूँ।",
+    },
+    "saathi.preparing": {
+        "en": "I'm studying your business and designing your ads.",
+        "hi": "मैं आपका बिज़नेस समझकर आपके ऐड्स बना रहा हूँ।",
+    },
+    "saathi.pending_approval": {
+        "en": "Your ads are ready — tap above to review, or I'll launch them at {when}.",
+        "hi": "आपके ऐड्स तैयार हैं — ऊपर टैप करके देखें, या {when} बजे मैं खुद लॉन्च कर दूँगा।",
+    },
+    "saathi.pending_approval_manual": {
+        "en": "Your ads are ready — tap above to review and launch them.",
+        "hi": "आपके ऐड्स तैयार हैं — ऊपर टैप करके देखें और लॉन्च करें।",
+    },
+    "saathi.launching": {
+        "en": "Approved! I'm sending your ads to Meta now.",
+        "hi": "अप्रूव हो गया! मैं ऐड्स Meta को भेज रहा हूँ।",
+    },
+    "saathi.paused": {
+        "en": "Your ads are paused. Resume whenever you're ready.",
+        "hi": "आपके ऐड्स रुके हुए हैं। जब चाहें फिर चालू करें।",
+    },
+    "saathi.qualified_today": {
+        "en": "I've qualified {n} lead(s) for you today. Keep going! 🎉",
+        "hi": "आज मैंने आपके लिए {n} ग्राहक तैयार किए हैं। बधाई! 🎉",
+    },
+    "saathi.own_number": {
+        "en": "Your ads send customers straight to your WhatsApp. Log them here so I can track results.",
+        "hi": "ऐड्स से ग्राहक सीधे आपके WhatsApp पर आते हैं। उन्हें यहाँ दर्ज करें ताकि मैं हिसाब रखूँ।",
+    },
+    "saathi.call_mode": {
+        "en": "Your ads make customers call you directly. Log the calls here so I can track results.",
+        "hi": "ऐड्स से ग्राहक सीधे आपको कॉल करते हैं। कॉल यहाँ दर्ज करें ताकि मैं हिसाब रखूँ।",
+    },
+    "saathi.watching": {
+        "en": "I'm watching your ads 24×7 and qualifying every lead that comes in.",
+        "hi": "मैं 24×7 आपके ऐड्स पर नज़र रखता हूँ और हर ग्राहक परखता हूँ।",
+    },
+    # ── Autopilot / ad lifecycle notifications ──
+    "notify.auto_launch.title": {"en": "Your ads are ready", "hi": "आपके ऐड्स तैयार हैं"},
+    "notify.auto_launch.body": {
+        "en": "{n} ads are ready. Review them now, or Saathi launches them automatically by {when}.",
+        "hi": "{n} ऐड्स तैयार हैं। अभी देख लें, वरना Saathi {when} बजे तक खुद लॉन्च कर देगा।",
+    },
+    "notify.auto_launched.title": {"en": "Ads launched on autopilot", "hi": "ऐड्स ऑटोपायलट पर लॉन्च"},
+    "notify.auto_launched.body": {
+        "en": "Saathi approved and launched your ads as scheduled. You can pause anytime.",
+        "hi": "Saathi ने तय समय पर आपके ऐड्स लॉन्च कर दिए। आप कभी भी रोक सकते हैं।",
+    },
+    "notify.ad_rejected.title": {"en": "An ad needs a change", "hi": "एक ऐड में बदलाव चाहिए"},
+    "notify.ad_rejected.body": {
+        "en": "Meta didn't approve one ad. Saathi paused it and is making a fresh one.",
+        "hi": "Meta ने एक ऐड मंज़ूर नहीं किया। Saathi ने उसे रोककर नया बनाना शुरू कर दिया।",
+    },
+    "notify.regenerating.title": {"en": "Making fresh ads", "hi": "नए ऐड्स बन रहे हैं"},
+    "notify.regenerating.body": {
+        "en": "The first batch didn't pass checks, so Saathi is creating a new set of ads.",
+        "hi": "पहले ऐड्स जाँच में पास नहीं हुए, इसलिए Saathi नए ऐड्स बना रहा है।",
+    },
 }
 
 

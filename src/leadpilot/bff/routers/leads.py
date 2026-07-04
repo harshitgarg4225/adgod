@@ -293,6 +293,24 @@ def home(account_id: str, principal: Principal = Depends(current_principal)) -> 
             select(WhatsAppConnection.mode).where(
                 WhatsAppConnection.account_id == account_id)
         )
+        # Autopilot-with-veto: tell the owner WHEN their ads self-launch.
+        auto_launch_at = None
+        if (account is not None
+                and account.phase == AccountPhase.PENDING_APPROVAL.value
+                and account.autopilot_level == "ASSISTED"
+                and (account.auto_approve_hours or 0) > 0):
+            from leadpilot.common.clock import IST
+            from leadpilot.core.models import Approval
+
+            pending_since = session.scalar(
+                select(Approval.created_at).where(
+                    Approval.account_id == account_id, Approval.status == "PENDING",
+                    Approval.kind == "CREATIVE_BATCH")
+                .order_by(Approval.created_at.desc()))
+            if pending_since is not None:
+                when = pending_since.astimezone(IST) + timedelta(
+                    hours=account.auto_approve_hours)
+                auto_launch_at = when.strftime("%I:%M %p")
 
     phase = account.phase if account else AccountPhase.SIGNED_UP.value
     paused = phase == AccountPhase.PAUSED.value
@@ -305,45 +323,59 @@ def home(account_id: str, principal: Principal = Depends(current_principal)) -> 
         qualified_today=int(qualified_today),
         cpql_paise=cpql,
         cpql_display=format_paise(cpql) if cpql is not None else None,
-        campaign_status=_phase_status(phase),
+        campaign_status=_phase_status(
+            phase, (account.default_language if account else None) or "en"),
         phase=phase,
         autopilot_level=account.autopilot_level if account else "ASSISTED",
         paused=paused,
         daily_budget_paise=daily_budget,
         daily_budget_display=format_paise(daily_budget),
-        saathi_status=_saathi_status(phase, paused, int(qualified_today), wa_mode),
+        saathi_status=_saathi_status(
+            phase, paused, int(qualified_today), wa_mode,
+            lang=(account.default_language if account else None) or "en",
+            auto_launch_at=auto_launch_at),
         unread_notifications=unread,
         spend_trend=spend_trend,
     )
 
 
-def _phase_status(phase: str) -> list[str]:
-    return {
-        AccountPhase.SIGNED_UP.value: ["Finish setup"],
-        AccountPhase.ONBOARDING.value: ["Finishing setup"],
-        AccountPhase.PENDING_APPROVAL.value: ["In review"],
-        AccountPhase.LIVE.value: ["Live"],
-        AccountPhase.OPTIMIZING.value: ["Live", "Optimizing"],
-        AccountPhase.PAUSED.value: ["Paused"],
-    }.get(phase, [phase.replace("_", " ").title()])
+def _phase_status(phase: str, lang: str = "en") -> list[str]:
+    """Owner-worded, localized phase chip. Every AccountPhase has explicit copy — raw
+    enum jargon ('Creative Generated') must never reach the owner's home screen."""
+    from leadpilot.common.i18n import t as _t
+
+    label = _t(f"phase.{phase}", lang)
+    if label == f"phase.{phase}":  # unknown phase — fail readable, not raw enum
+        label = phase.replace("_", " ").title()
+    return label.split(" · ")
 
 
 def _saathi_status(phase: str, paused: bool, qualified_today: int,
-                   wa_mode: str | None = None) -> str:
+                   wa_mode: str | None = None, lang: str = "en",
+                   auto_launch_at: str | None = None) -> str:
+    """Saathi's one-liner — the most-read sentence in the product. It must be TRUE for
+    the phase: never claim to be watching ads that aren't live yet."""
+    from leadpilot.common.i18n import t as _t
+
     if paused:
-        return "Your ads are paused. Resume whenever you're ready."
+        return _t("saathi.paused", lang)
     if phase in (AccountPhase.SIGNED_UP.value, AccountPhase.ONBOARDING.value):
-        return "Let's finish setting up so I can start finding leads for you."
+        return _t("saathi.setup", lang)
+    if phase in (AccountPhase.RESEARCHED.value, AccountPhase.CREATIVE_GENERATED.value):
+        return _t("saathi.preparing", lang)
     if phase == AccountPhase.PENDING_APPROVAL.value:
-        return "Your ads are in review — I'll start them the moment they're approved."
+        if auto_launch_at:
+            return _t("saathi.pending_approval", lang, when=auto_launch_at)
+        return _t("saathi.pending_approval_manual", lang)
+    if phase in (AccountPhase.APPROVED.value, AccountPhase.LAUNCHING.value):
+        return _t("saathi.launching", lang)
     if qualified_today:
-        return f"I've qualified {qualified_today} lead(s) for you today. Keep going! 🎉"
+        return _t("saathi.qualified_today", lang, n=qualified_today)
+    if wa_mode == "CALL":
+        return _t("saathi.call_mode", lang)
     if wa_mode == "APP_DESTINATION":
-        # Own-number mode: chats land in the owner's WhatsApp, not here — never claim
-        # we're qualifying what we cannot see.
-        return ("Your ads send customers straight to your WhatsApp. "
-                "Log enquiries here so I can track your results.")
-    return "I'm watching your ads 24×7 and qualifying every lead that comes in."
+        return _t("saathi.own_number", lang)
+    return _t("saathi.watching", lang)
 
 
 @router.get("/accounts/{account_id}/leads/export.csv")

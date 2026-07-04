@@ -207,8 +207,12 @@ def run_creative(session: Session, *, tenant_id: UUID, account_id: UUID, max_ang
             creative_ids.append(video.id)
 
     # Trust gate (PRD §4.5.4): full autopilot auto-approves; otherwise queue an approval.
+    from leadpilot.common.i18n import t as _t
+
+    lang = account.default_language or "en"
     if full_autopilot:
         account.phase = AccountPhase.CREATIVE_GENERATED.value
+        title, body = _t("notify.auto_launch.title", lang), f"{len(creative_ids)} ads ready."
     else:
         account.phase = AccountPhase.PENDING_APPROVAL.value
         session.add(Approval(
@@ -216,9 +220,17 @@ def run_creative(session: Session, *, tenant_id: UUID, account_id: UUID, max_ang
             payload={"creative_ids": [str(i) for i in creative_ids]},
             status=ApprovalStatus.PENDING.value,
         ))
+        title = _t("notify.auto_launch.title", lang)
+        if (account.autopilot_level == AutopilotLevel.ASSISTED.value
+                and (account.auto_approve_hours or 0) > 0):
+            when = (datetime.now(IST) + timedelta(hours=account.auto_approve_hours))
+            body = _t("notify.auto_launch.body", lang, n=len(creative_ids),
+                      when=when.strftime("%I:%M %p"))
+        else:
+            body = f"{len(creative_ids)} ad creatives generated."
     session.add(Notification(
         tenant_id=tenant_id, account_id=account_id, kind=NotificationKind.CREATIVE_READY.value,
-        title="Your ads are ready", body=f"{len(creative_ids)} ad creatives generated.",
+        title=title, body=body,
     ))
     log.info("creative_done", account=str(account_id), creatives=len(creative_ids))
     return creative_ids
@@ -226,17 +238,96 @@ def run_creative(session: Session, *, tenant_id: UUID, account_id: UUID, max_ang
 
 # ─────────────────────────── Buyer: launch ───────────────────────────
 
+def approve_creative_batch(session: Session, *, tenant_id: UUID, account_id: UUID,
+                           approval: Approval, auto: bool = False) -> int:
+    """Promote a CREATIVE_BATCH's creatives to launch-ready. VETO-PRESERVING: only DRAFT
+    + compliance-PASSED creatives are promoted — an owner's explicit REJECTED must never
+    be resurrected (especially by the auto-approve cron). Moves the account phase forward
+    only when something was actually promoted. Shared by the human decide endpoint and
+    the autopilot-with-veto cron."""
+    promoted = 0
+    for cid in approval.payload.get("creative_ids", []):
+        c = session.get(Creative, cid)
+        if (c is not None and c.compliance_status == ComplianceStatus.PASSED.value
+                and c.approval_status == ApprovalState.DRAFT.value):
+            c.approval_status = ApprovalState.APPROVED_FOR_LAUNCH.value
+            promoted += 1
+    if promoted:
+        account = session.get(Account, account_id)
+        if account is not None and account.phase == AccountPhase.PENDING_APPROVAL.value:
+            account.phase = AccountPhase.APPROVED.value
+    log.info("creative_batch_approved", account=str(account_id), promoted=promoted,
+             auto=auto)
+    return promoted
+
+
+def set_live_state(session: Session, *, tenant_id: UUID, account_id: UUID,
+                   pause: bool, reason: str | None = None) -> bool:
+    """Pause/resume must reach META, not just our rows — a 'paused' account whose
+    campaign keeps delivering is spending real money against the owner's explicit stop.
+    Resume also reactivates PAUSED ad sets (the recovery path after an emergency pause
+    or a kill-rule sweep) and restores the pre-pause phase."""
+    account = session.get(Account, account_id)
+    if account is None:
+        return False
+    campaign = session.scalar(select(Campaign).where(
+        Campaign.account_id == account_id,
+        Campaign.status.in_([CampaignStatus.ACTIVE.value, CampaignStatus.PAUSED.value]))
+        .order_by(Campaign.created_at.desc()))
+    meta = meta_adapter_for_account(session, account_id) if campaign is not None else None
+
+    if pause:
+        if campaign is not None and campaign.meta_campaign_id:
+            meta.set_status(level="CAMPAIGN", meta_id=campaign.meta_campaign_id,
+                            status="PAUSED")
+            campaign.status = CampaignStatus.PAUSED.value
+        if account.phase != AccountPhase.PAUSED.value:
+            account.phase_before_pause = account.phase
+        account.pause_reason = reason or "owner"
+        account.phase = AccountPhase.PAUSED.value
+        return True
+
+    # Resume: campaign back on, every paused ad set back on (optimizer re-kills real
+    # losers later — a resume that resumes nothing is the wedge we're fixing).
+    if campaign is not None and campaign.meta_campaign_id:
+        meta.set_status(level="CAMPAIGN", meta_id=campaign.meta_campaign_id, status="ACTIVE")
+        campaign.status = CampaignStatus.ACTIVE.value
+        for adset in session.scalars(select(AdSet).where(
+                AdSet.campaign_id == campaign.id,
+                AdSet.status == CampaignStatus.PAUSED.value)).all():
+            if adset.meta_adset_id:
+                meta.set_status(level="ADSET", meta_id=adset.meta_adset_id, status="ACTIVE")
+            adset.status = CampaignStatus.ACTIVE.value
+    restored = account.phase_before_pause
+    live_phases = {AccountPhase.LIVE.value, AccountPhase.OPTIMIZING.value,
+                   AccountPhase.FATIGUE_REFRESH.value}
+    account.phase = restored if restored in live_phases else (
+        AccountPhase.OPTIMIZING.value if campaign is not None else
+        (restored or AccountPhase.OPTIMIZING.value))
+    account.pause_reason = None
+    account.phase_before_pause = None
+    return True
+
+
+def is_platform_blind(mode: str | None) -> bool:
+    """Own-number CTWA and click-to-call both convert OFF-platform (the owner's WhatsApp
+    app / phone) — lead-based kill rules must never fire on them."""
+    return mode in ("APP_DESTINATION", "CALL")
+
+
 def _ctwa_cta(wa_conn: WhatsAppConnection | None, page_id: str) -> dict:
-    """link_data payload for a Click-to-WhatsApp ad. Graph requires a `link`; wa.me/<phone>
-    is the documented review-free deep link into the owner's own WhatsApp (APP_DESTINATION)
-    and works equally for Cloud-API numbers. Falls back to the Page URL."""
+    """link_data payload by destination. WhatsApp modes get the review-free wa.me deep
+    link; CALL mode gets a CALL_NOW CTA dialing the owner. Graph requires a `link` —
+    fall back to the Page URL if no number exists."""
     import re
 
-    link = f"https://facebook.com/{page_id}"
+    digits = ""
     if wa_conn and wa_conn.display_phone:
         digits = re.sub(r"\D", "", wa_conn.display_phone)
-        if digits:
-            link = f"https://wa.me/{digits}"
+    if wa_conn and wa_conn.mode == "CALL" and digits:
+        tel = f"tel:+{digits}"
+        return {"link": tel, "call_to_action": {"type": "CALL_NOW", "value": {"link": tel}}}
+    link = f"https://wa.me/{digits}" if digits else f"https://facebook.com/{page_id}"
     return {"link": link, "call_to_action": {"type": "WHATSAPP_MESSAGE", "value": {"link": link}}}
 
 
@@ -378,10 +469,15 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
         if role == AdSetRole.RETARGETING:
             # Warm audience: people who engaged with the ads / clicked to WhatsApp.
             targeting["custom_audiences"] = [{"type": "ENGAGEMENT", "lookback_days": 30}]
+        # Ad-set shape follows the destination: CTWA optimizes for conversations;
+        # click-to-call uses Meta's call-leads combination. Verify both once against a
+        # PAUSED live launch before trusting new Graph field shapes.
+        call_mode = wa_conn is not None and wa_conn.mode == "CALL"
         meta_adset_id = meta_adsets_by_name.get(adset_name) or meta.create_adset(
             ad_account_id=ad_account_id, campaign_id=meta_campaign_id,
             name=adset_name, targeting=targeting, daily_budget_paise=budget,
-            optimization_goal="CONVERSATIONS", destination_type="WHATSAPP",
+            optimization_goal="QUALITY_CALL" if call_mode else "CONVERSATIONS",
+            destination_type="PHONE_CALL" if call_mode else "WHATSAPP",
             promoted_object={"page_id": page_id},
         )
         adset = AdSet(
@@ -459,10 +555,33 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
         select(AdSet).where(AdSet.account_id == account_id,
                             AdSet.status == CampaignStatus.ACTIVE.value)
     ).all()
-    if not ad_sets:
-        return []
-
     meta = meta_adapter_for_account(session, account_id)
+    if not ad_sets:
+        # Recovery: kill rules can legally pause every ad set, but a LIVE account with an
+        # ACTIVE campaign and zero delivery is a stall, not a strategy — restart the
+        # prospecting tier and let the rules re-evaluate with fresh data.
+        campaign = session.scalar(select(Campaign).where(
+            Campaign.account_id == account_id,
+            Campaign.status == CampaignStatus.ACTIVE.value))
+        paused = session.scalars(select(AdSet).where(
+            AdSet.account_id == account_id,
+            AdSet.status == CampaignStatus.PAUSED.value)).all() if campaign else []
+        restart = next((a for a in paused if a.role == AdSetRole.PROSPECTING.value),
+                       paused[0] if paused else None)
+        if restart is None:
+            return []
+        if restart.meta_adset_id:
+            meta.set_status(level="ADSET", meta_id=restart.meta_adset_id, status="ACTIVE")
+        restart.status = CampaignStatus.ACTIVE.value
+        session.add(OptimizationDecision(
+            tenant_id=tenant_id, account_id=account_id, run_id=None,
+            level=InsightLevel.ADSET.value, ref_id=restart.id,
+            action=OptimizationAction.RESUME.value, reason_code="auto_recovery_restart",
+            before={}, after={"status": "ACTIVE"}, applied=True))
+        log.warning("optimizer_auto_recovery", account=str(account_id),
+                    adset=str(restart.id))
+        ad_sets = [restart]
+
     # Blind mode: on the own-number (APP_DESTINATION) path the qualification chats happen
     # on the client's phone — platform-side lead counts can be zero while the client's
     # WhatsApp is full. Lead-based kill rules would murder healthy campaigns, so they are
@@ -470,7 +589,7 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
     wa_conn = session.scalar(
         select(WhatsAppConnection).where(WhatsAppConnection.account_id == account_id))
     blind = (not settings.mock_meta) and wa_conn is not None \
-        and wa_conn.mode == "APP_DESTINATION"
+        and is_platform_blind(wa_conn.mode)
     guard = GuardrailEngine(session, tenant_id=tenant_id, account_id=account_id)
     rows = meta.get_insights(level=InsightLevel.ADSET.value,
                              meta_ids=[a.meta_adset_id for a in ad_sets if a.meta_adset_id])
@@ -508,6 +627,8 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
                 level=InsightLevel.ADSET.value, ref_id=adset.id,
                 action=OptimizationAction.PAUSE.value, reason_code="emergency_daily_cap",
                 before={"budget_paise": adset.budget_paise}, after={}, applied=True))
+        account.phase_before_pause = account.phase
+        account.pause_reason = "emergency"
         account.phase = AccountPhase.PAUSED.value
         session.add(Notification(
             tenant_id=tenant_id, account_id=account_id, kind=NotificationKind.ANOMALY.value,
@@ -591,11 +712,19 @@ def run_optimization(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
                     decisions.append({"adset": str(adset.id), "action": "PROMOTE",
                                       "reason": "test_winner_promoted", "cpl_paise": cpl})
             elif action == OptimizationAction.REQUEST_CREATIVE:
-                # Fatigue refresh (PRD §6.5.2): Maker → Buyer rotate fresh creative into Testing.
-                rotate_fresh_creative(session, tenant_id=tenant_id, account_id=account_id)
-                session.add(Notification(
-                    tenant_id=tenant_id, account_id=account_id, kind=NotificationKind.ANOMALY.value,
-                    title="Refreshing tired ads", body="Saathi created fresh creative for a fatigued ad set."))
+                # Fatigue refresh (PRD §6.5.2) with a 24h cooldown — the optimizer runs
+                # hourly and a saturated audience must not spawn a new creative + Meta ad
+                # + notification every single hour.
+                if _rotated_recently(session, account_id):
+                    action, reason, after = OptimizationAction.NO_OP, "fatigue_cooldown", {}
+                else:
+                    rotate_fresh_creative(session, tenant_id=tenant_id,
+                                          account_id=account_id, target_adset=adset)
+                    session.add(Notification(
+                        tenant_id=tenant_id, account_id=account_id,
+                        kind=NotificationKind.ANOMALY.value,
+                        title="Refreshing tired ads",
+                        body="Saathi created fresh creative for a fatigued ad set."))
 
         if action != OptimizationAction.NO_OP:
             session.add(OptimizationDecision(
@@ -675,20 +804,42 @@ def _sweep_ad_reviews(session: Session, meta, *, tenant_id: UUID, account_id: UU
     except Exception as exc:  # noqa: BLE001 - the sweep must never break optimization
         log.warning("ad_status_sweep_failed", account=str(account_id), error=str(exc)[:200])
         return
+    from leadpilot.common.i18n import t as _t
+
+    account = session.get(Account, account_id)
+    lang = (account.default_language if account else None) or "en"
+    rejected_any = False
     for ad in ads:
         status = statuses.get(ad.meta_ad_id or "")
         if not status or status == ad.review_status:
             continue
         ad.review_status = status
         if status in {"DISAPPROVED", "WITH_ISSUES"}:
+            # Real remediation, not fiction: stop the rejected ad and rotate a fresh
+            # creative in (cooldown-guarded), so "Saathi is making a fix" is true.
+            if ad.meta_ad_id:
+                try:
+                    meta.set_status(level="AD", meta_id=ad.meta_ad_id, status="PAUSED")
+                except Exception as exc:  # noqa: BLE001 - sweep must survive
+                    log.warning("ad_pause_failed", ad=str(ad.id), error=str(exc)[:120])
+            ad.status = CampaignStatus.PAUSED.value
+            rejected_any = True
             session.add(GuardrailEvent(
                 tenant_id=tenant_id, account_id=account_id, type="ANOMALY", severity="ERROR",
                 action_taken="AD_REJECTED", detail={"reason": "meta_ad_rejected",
                                                     "ad_id": str(ad.id), "status": status}))
             session.add(Notification(
                 tenant_id=tenant_id, account_id=account_id,
-                kind=NotificationKind.ANOMALY.value, title="An ad needs attention",
-                body="Meta didn\'t approve one of your ads. Saathi is preparing a fix."))
+                kind=NotificationKind.ANOMALY.value,
+                title=_t("notify.ad_rejected.title", lang),
+                body=_t("notify.ad_rejected.body", lang)))
+    if rejected_any and not _rotated_recently(session, account_id):
+        rotate_fresh_creative(session, tenant_id=tenant_id, account_id=account_id)
+        session.add(OptimizationDecision(
+            tenant_id=tenant_id, account_id=account_id, run_id=None,
+            level=InsightLevel.AD.value, ref_id=account_id,
+            action=OptimizationAction.REQUEST_CREATIVE.value,
+            reason_code="meta_rejected_replacement", before={}, after={}, applied=True))
 
 
 def reconcile_budgets(session: Session, *, tenant_id: UUID, account_id: UUID) -> int:
@@ -732,6 +883,15 @@ def _cap_to_account_budget(ad_sets: list, adset, proposed: int, total_budget: in
     return min(proposed, max(adset.budget_paise, total_budget - others))
 
 
+def _rotated_recently(session: Session, account_id: UUID, hours: int = 24) -> bool:
+    last = session.scalar(
+        select(OptimizationDecision.created_at).where(
+            OptimizationDecision.account_id == account_id,
+            OptimizationDecision.action == OptimizationAction.REQUEST_CREATIVE.value)
+        .order_by(OptimizationDecision.created_at.desc()))
+    return last is not None and last > _now() - timedelta(hours=hours)
+
+
 def _decide(adset: AdSet, row, cpl, target_cpql, total_budget, *, blind: bool = False):
     """Kill-losers / scale-winners / refresh-fatigue rule engine. All bounds are
     deterministic — the guardrails cap what any decision can move (§6.5.1)."""
@@ -762,15 +922,19 @@ def account_daily_budget(session: Session, account_id: UUID) -> int:
     return profile.daily_budget_paise if profile else 50000
 
 
-def rotate_fresh_creative(session: Session, *, tenant_id: UUID, account_id: UUID) -> UUID | None:
-    """Fatigue refresh: generate a fresh creative and rotate it into the Testing ad set,
-    so the lead stream never depends on a single creative (PRD §6.5.2)."""
+def rotate_fresh_creative(session: Session, *, tenant_id: UUID, account_id: UUID,
+                          target_adset: AdSet | None = None) -> UUID | None:
+    """Fatigue refresh: generate a fresh creative and rotate it into the Testing ad set —
+    or, when no Testing tier exists (small budgets fold it away; promotion converts it),
+    straight into the fatigued ad set itself (PRD §6.5.2)."""
     account = session.get(Account, account_id)
     angle = session.scalar(
         select(Angle).where(Angle.account_id == account_id, Angle.status == "ACTIVE"))
     testing = session.scalar(
         select(AdSet).where(AdSet.account_id == account_id, AdSet.role == AdSetRole.TESTING.value,
                             AdSet.status == CampaignStatus.ACTIVE.value))
+    if testing is None or not testing.meta_adset_id:
+        testing = target_adset
     if angle is None or testing is None or not testing.meta_adset_id:
         return None
     meta_conn = session.scalar(select(MetaConnection).where(MetaConnection.account_id == account_id))

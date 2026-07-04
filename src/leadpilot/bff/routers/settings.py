@@ -33,6 +33,7 @@ class SettingsOut(BaseModel):
     daily_budget_display: str
     default_language: str
     autopilot_level: str
+    auto_approve_hours: int
     phase: str
     paused: bool
     subscription_tier: str | None
@@ -55,6 +56,8 @@ class SettingsPatch(BaseModel):
     monthly_cap_paise: int | None = Field(default=None, ge=0)
     default_language: str | None = None
     autopilot_level: str | None = None
+    # 0 disables auto-launch (Saathi waits for the owner forever); 1-72 hours otherwise.
+    auto_approve_hours: int | None = Field(default=None, ge=0, le=72)
     gstin: str | None = Field(default=None, max_length=20)
     legal_name: str | None = Field(default=None, max_length=200)
     billing_address: str | None = Field(default=None, max_length=1000)
@@ -103,6 +106,7 @@ def get_settings(account_id: str, principal: Principal = Depends(current_princip
             daily_budget_display=format_paise(budget),
             default_language=account.default_language,
             autopilot_level=account.autopilot_level,
+            auto_approve_hours=account.auto_approve_hours,
             phase=account.phase,
             paused=account.phase == AccountPhase.PAUSED.value,
             subscription_tier=sub.tier if sub else None,
@@ -133,6 +137,8 @@ def update_settings(
             account.default_language = patch.default_language
         if patch.autopilot_level is not None:
             account.autopilot_level = patch.autopilot_level
+        if patch.auto_approve_hours is not None:
+            account.auto_approve_hours = patch.auto_approve_hours
         if patch.gstin is not None:
             account.gstin = patch.gstin
         if patch.legal_name is not None:
@@ -169,24 +175,33 @@ class PauseOut(BaseModel):
 
 @router.post("/accounts/{account_id}/pause", response_model=PauseOut)
 def pause(account_id: str, principal: Principal = Depends(current_principal)) -> PauseOut:
-    """Owner kill-switch: stop all ad spend immediately. The optimizer/launcher skip
-    PAUSED accounts, so this halts autonomous spend until the owner resumes."""
+    """Owner kill-switch: stop all ad spend immediately — ON META, not just our rows.
+    Only meaningful for live phases; pre-launch there is nothing to pause and flipping
+    the phase would wedge the launch pipeline."""
     require_account_access(principal, account_id)
     with tenant_session(principal.tenant_id) as s:
         account = s.get(Account, account_id)
         if account is None:
             raise NotFoundError("Account not found")
-        account.phase = AccountPhase.PAUSED.value
+        if account.phase not in _RESUMABLE:
+            raise ValidationError("Your ads aren't live yet — there's nothing to pause.")
+        from leadpilot.saathi.pipeline import set_live_state
+
+        set_live_state(s, tenant_id=account.tenant_id, account_id=account.id,
+                       pause=True, reason="owner")
         return PauseOut(phase=account.phase, paused=True)
 
 
 @router.post("/accounts/{account_id}/resume", response_model=PauseOut)
 def resume(account_id: str, principal: Principal = Depends(current_principal)) -> PauseOut:
+    """Resume restores the pre-pause phase and reactivates the Meta campaign + any paused
+    ad sets — the recovery path after owner/emergency/trial pauses."""
     require_account_access(principal, account_id)
     with tenant_session(principal.tenant_id) as s:
         account = s.get(Account, account_id)
         if account is None:
             raise NotFoundError("Account not found")
-        # Resume into the optimizing loop (Saathi re-takes the wheel).
-        account.phase = AccountPhase.OPTIMIZING.value
+        from leadpilot.saathi.pipeline import set_live_state
+
+        set_live_state(s, tenant_id=account.tenant_id, account_id=account.id, pause=False)
         return PauseOut(phase=account.phase, paused=False)

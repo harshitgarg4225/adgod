@@ -140,6 +140,10 @@ def progress_accounts() -> dict:
                     with tenant_session(tenant_id) as s:
                         pipeline.launch_campaigns(s, tenant_id=tenant_id, account_id=account_id)
                     advanced["launch"] += 1
+                elif approved and not has_meta:
+                    # Owner did their part; ops must connect Meta. Surface it in the
+                    # admin anomaly queue (deduped daily) instead of a silent stall.
+                    _record_awaiting_meta(tenant_id, account_id)
         except Exception as exc:  # noqa: BLE001 - one stall must not block the fleet
             log.warning("progress_failed", account=str(account_id), phase=phase,
                         error=str(exc)[:200])
@@ -147,6 +151,28 @@ def progress_accounts() -> dict:
     if any(advanced.values()):
         log.info("progress_accounts", **advanced)
     return advanced
+
+
+def _record_awaiting_meta(tenant_id, account_id) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    from leadpilot.core.models import GuardrailEvent
+
+    try:
+        with platform_session() as s:
+            recent = s.scalar(select(GuardrailEvent).where(
+                GuardrailEvent.account_id == account_id,
+                GuardrailEvent.action_taken == "AWAITING_META",
+                GuardrailEvent.created_at > datetime.now(UTC) - timedelta(days=1)))
+            if recent is None:
+                s.add(GuardrailEvent(
+                    tenant_id=tenant_id, account_id=account_id, type="ANOMALY",
+                    severity="WARN", action_taken="AWAITING_META",
+                    detail={"reason": "approved_waiting_on_meta_connection"}))
+    except Exception:  # noqa: BLE001
+        log.warning("awaiting_meta_unrecorded", account=str(account_id))
 
 
 def _flag_dead_token(tenant_id, account_id, exc: Exception) -> None:
@@ -184,6 +210,78 @@ def _record_progress_failure(tenant_id, account_id, phase: str, exc: Exception) 
                 action_taken="NONE"))
     except Exception:  # noqa: BLE001 - reporting must never take down the cron
         log.warning("progress_failure_unrecorded", account=str(account_id))
+
+
+@app.task(name="leadpilot.approvals.auto_approve")
+def auto_approve_pending() -> dict:
+    """Autopilot-with-veto: ASSISTED accounts' creative batches auto-approve
+    auto_approve_hours after generation unless the owner acted. The claim is an atomic
+    UPDATE … WHERE status='PENDING' so a simultaneous human tap (or a double-fired beat)
+    can never double-approve. Veto-preserving: promotion only touches DRAFT creatives.
+    A batch with nothing promotable regenerates once instead of wedging silently."""
+    from sqlalchemy import func, select
+
+    from leadpilot.common.i18n import t as _t
+    from leadpilot.core.models import Account, Approval, Notification
+    from leadpilot.saathi import pipeline
+
+    approved = regenerated = 0
+    with platform_session() as s:
+        rows = s.execute(text(
+            "SELECT a.id, a.tenant_id, a.account_id FROM approvals a "
+            "JOIN accounts acc ON acc.id = a.account_id "
+            "WHERE a.kind = 'CREATIVE_BATCH' AND a.status = 'PENDING' "
+            "AND acc.phase = 'PENDING_APPROVAL' AND acc.autopilot_level = 'ASSISTED' "
+            "AND acc.auto_approve_hours > 0 AND acc.deleted_at IS NULL "
+            "AND a.created_at < now() - make_interval(hours => acc.auto_approve_hours)"
+        )).all()
+
+    for approval_id, tenant_id, account_id in rows:
+        try:
+            with platform_session() as s:
+                claimed = s.execute(text(
+                    "UPDATE approvals SET status = 'APPROVED', decided_at = now() "
+                    "WHERE id = :id AND status = 'PENDING'"), {"id": approval_id}).rowcount
+            if not claimed:
+                continue  # a human decided in the meantime — their call stands
+            with tenant_session(tenant_id) as s:
+                approval = s.get(Approval, approval_id)
+                account = s.get(Account, account_id)
+                lang = (account.default_language if account else None) or "en"
+                promoted = pipeline.approve_creative_batch(
+                    s, tenant_id=tenant_id, account_id=account_id,
+                    approval=approval, auto=True)
+                if promoted:
+                    approved += 1
+                    s.add(Notification(
+                        tenant_id=tenant_id, account_id=account_id, kind="CAMPAIGN_LIVE",
+                        title=_t("notify.auto_launched.title", lang),
+                        body=_t("notify.auto_launched.body", lang)))
+                    continue
+                # Nothing promotable (owner rejected everything / all failed compliance):
+                # regenerate one fresh batch rather than stalling forever. Batches are
+                # bounded by the approvals count so this can never loop.
+                batches = s.scalar(select(func.count(Approval.id)).where(
+                    Approval.account_id == account_id,
+                    Approval.kind == "CREATIVE_BATCH")) or 0
+                if batches < 3:
+                    s.add(Notification(
+                        tenant_id=tenant_id, account_id=account_id, kind="CREATIVE_READY",
+                        title=_t("notify.regenerating.title", lang),
+                        body=_t("notify.regenerating.body", lang)))
+                    pipeline.run_creative(s, tenant_id=tenant_id, account_id=account_id)
+                    regenerated += 1
+                else:
+                    _record_progress_failure(
+                        tenant_id, account_id, "AUTO_APPROVE",
+                        RuntimeError("3 creative batches with nothing approvable"))
+        except Exception as exc:  # noqa: BLE001 - one account never blocks the fleet
+            log.warning("auto_approve_failed", account=str(account_id),
+                        error=str(exc)[:200])
+            _record_progress_failure(tenant_id, account_id, "AUTO_APPROVE", exc)
+    if approved or regenerated:
+        log.info("auto_approve", approved=approved, regenerated=regenerated)
+    return {"approved": approved, "regenerated": regenerated}
 
 
 @app.task(name="leadpilot.leads.poll_form_leads")
@@ -327,6 +425,7 @@ def trial_sweep() -> dict:
     from datetime import UTC, datetime
 
     expired = 0
+    paused_accounts: list[tuple] = []
     with platform_session() as s:
         rows = s.execute(
             text(
@@ -340,9 +439,11 @@ def trial_sweep() -> dict:
                 text("UPDATE subscriptions SET status='PAST_DUE', updated_at=:now WHERE id=:id"),
                 {"now": now, "id": sub_id},
             )
-            # Pause spend until they pay.
+            # Pause spend until they pay — with provenance, so paying auto-resumes and an
+            # owner's own pause is never confused with ours.
             s.execute(
-                text("UPDATE accounts SET phase='PAUSED' WHERE id=:id AND phase IN "
+                text("UPDATE accounts SET pause_reason='trial', phase_before_pause=phase, "
+                     "phase='PAUSED' WHERE id=:id AND phase IN "
                      "('LIVE','OPTIMIZING','FATIGUE_REFRESH')"),
                 {"id": account_id},
             )
@@ -358,6 +459,19 @@ def trial_sweep() -> dict:
                 },
             )
             expired += 1
+            paused_accounts.append((tenant_id, account_id))
+    # Meta must stop delivering too — a "paused" campaign that keeps spending is theft
+    # of a lapsed client's money. Best-effort per account.
+    from leadpilot.saathi.pipeline import set_live_state
+
+    for tenant_id, account_id in paused_accounts:
+        try:
+            with tenant_session(tenant_id) as s2:
+                set_live_state(s2, tenant_id=tenant_id, account_id=account_id,
+                               pause=True, reason="trial")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("trial_pause_meta_failed", account=str(account_id),
+                        error=str(exc)[:150])
     if expired:
         log.info("trial_sweep", expired=expired)
     return {"expired": expired}

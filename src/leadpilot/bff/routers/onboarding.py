@@ -100,10 +100,11 @@ def connect_whatsapp(body: WhatsAppConnectIn, principal: Principal = Depends(cur
         raise ValidationError(f"Unknown WhatsApp mode: {mode}")
     if not principal.account_id:
         raise NotFoundError("No account")
-    if mode == WhatsAppMode.APP_DESTINATION.value and not body.phone:
-        raise ValidationError("phone is required for APP_DESTINATION")
-    if mode != WhatsAppMode.APP_DESTINATION.value and not body.phone_number_id:
-        raise ValidationError("phone_number_id is required for CLOUD_API/BSP")
+    if mode in (WhatsAppMode.APP_DESTINATION.value, WhatsAppMode.CALL.value) \
+            and not body.phone:
+        raise ValidationError("phone is required for APP_DESTINATION/CALL")
+    if mode == WhatsAppMode.CLOUD_API.value and not body.phone_number_id:
+        raise ValidationError("phone_number_id is required for CLOUD_API")
 
     with tenant_session(principal.tenant_id) as s:
         conn = s.scalar(

@@ -9,6 +9,7 @@ import { useT } from "@/lib/i18n";
 import {
   ActingAsBanner,
   BottomNav,
+  Button,
   Card,
   ConfirmDialog,
   EmptyState,
@@ -18,6 +19,7 @@ import {
   SaathiAvatar,
   SaathiStatusCard,
   ScoreBadge,
+  Sheet,
   Skeleton,
   SkeletonCard,
   Sparkline,
@@ -34,6 +36,9 @@ export default function Dashboard() {
   const [leads, setLeads] = useState<LeadListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmPause, setConfirmPause] = useState(false);
+  const [budgetOpen, setBudgetOpen] = useState(false);
+  const [budgetDraft, setBudgetDraft] = useState(500);
+  const [budgetSaving, setBudgetSaving] = useState(false);
   const [busyPause, setBusyPause] = useState(false);
   const [actingAs, setActingAs] = useState<string | null>(null);
 
@@ -144,6 +149,20 @@ export default function Dashboard() {
           <Skeleton className="h-16 w-full rounded-2xl" />
         )}
 
+        {/* Proof of work: once live, the owner can SEE their ads. */}
+        {home && ["LIVE", "OPTIMIZING", "FATIGUE_REFRESH", "PAUSED"].includes(home.phase) && (
+          <Link
+            href="/ads"
+            className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 shadow-card transition active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-3">
+              <Icon name="sparkle" className="h-6 w-6 text-brand" />
+              <p className="font-semibold">{t("dashboard.seeMyAds", "See my ads")}</p>
+            </div>
+            <Icon name="chevronLeft" className="h-5 w-5 rotate-180 text-ink-faint" />
+          </Link>
+        )}
+
         {/* The one human gate on the ASSISTED path: without this card a provisioned
             owner has NO route to the approval screen and the launch stalls forever. */}
         {home && ["PENDING_APPROVAL", "CREATIVE_GENERATED", "RESEARCHED"].includes(home.phase) && (
@@ -173,7 +192,7 @@ export default function Dashboard() {
               {home ? (
                 <>
                   <Stat label={t("dashboard.spentToday", "Spent today")} value={home.today_spend_display} tone="brand" />
-                  <Stat label={t("dashboard.leadsToday", "Leads today")} value={String(home.qualified_today)} />
+                  <Stat label={t("dashboard.leadsToday", "Leads today")} value={String(home.enquiries_today)} />
                   <Stat
                     label={t("dashboard.costPerLead", "Cost / lead")}
                     value={home.cpql_display || "—"}
@@ -188,17 +207,22 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Spend trend + budget safety */}
+            {/* Spend trend + THE one control: the daily budget, one tap from home */}
             {home && (
               <Card className="flex items-center justify-between">
-                <div>
+                <button className="text-left" onClick={() => {
+                  setBudgetDraft(Math.round(home.daily_budget_paise / 100) || 500);
+                  setBudgetOpen(true);
+                }}>
                   <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
                     {t("dashboard.spend7d", "Last 7 days")}
                   </p>
                   <p className="mt-0.5 text-sm text-ink-muted">
-                    {t("dashboard.dailyCap", "Daily cap")} {home.daily_budget_display}
+                    {t("dashboard.dailyCap", "Daily cap")}{" "}
+                    <span className="font-semibold text-ink">{home.daily_budget_display}</span>{" "}
+                    <span className="font-medium text-brand">{t("dashboard.change", "Change")}</span>
                   </p>
-                </div>
+                </button>
                 {home.spend_trend?.some((v) => v > 0) ? (
                   <Sparkline points={home.spend_trend.map((p) => p / 100)} />
                 ) : (
@@ -207,8 +231,9 @@ export default function Dashboard() {
               </Card>
             )}
 
-            {/* Owner kill-switch */}
-            {home && (
+            {/* Owner kill-switch — only where ads actually exist to pause. A pre-launch
+                "Ads are running" toggle is a lie and pausing then wedges the pipeline. */}
+            {home && ["LIVE", "OPTIMIZING", "FATIGUE_REFRESH", "PAUSED"].includes(home.phase) && (
               <Card className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Icon name="shield" className="h-6 w-6 text-brand" />
@@ -292,6 +317,42 @@ export default function Dashboard() {
           </ul>
         )}
       </section>
+
+      <Sheet open={budgetOpen} onClose={() => setBudgetOpen(false)}
+        title={t("dashboard.changeBudget", "Daily budget")}>
+        <div className="space-y-4">
+          <p className="text-center text-3xl font-bold">₹{budgetDraft.toLocaleString("en-IN")}
+            <span className="text-base font-medium text-ink-muted">/{t("billing.day", "day")}</span>
+          </p>
+          <input
+            type="range" min={100} max={5000} step={100} value={budgetDraft}
+            onChange={(e) => setBudgetDraft(Number(e.target.value))}
+            className="w-full accent-[var(--brand,#16a34a)]"
+            aria-label={t("dashboard.changeBudget", "Daily budget")}
+          />
+          <p className="text-center text-xs text-ink-muted">
+            {t("dashboard.budgetSafety", "Saathi never spends more than this in a day.")}
+          </p>
+          <Button fullWidth loading={budgetSaving} onClick={async () => {
+            const account = getUser()?.account_id;
+            if (!account) return;
+            setBudgetSaving(true);
+            try {
+              // Server pushes the change to the LIVE Meta ad sets immediately.
+              await api.updateSettings(account, { daily_budget_paise: budgetDraft * 100 });
+              setBudgetOpen(false);
+              await load();
+              toast.show(t("settings.savedBudget", "Budget updated."), "success");
+            } catch (e: any) {
+              toast.show(e.userMessage || t("common.somethingWrong", "Could not update."), "error");
+            } finally {
+              setBudgetSaving(false);
+            }
+          }}>
+            {t("common.save", "Save")}
+          </Button>
+        </div>
+      </Sheet>
 
       <ConfirmDialog
         open={confirmPause}

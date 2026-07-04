@@ -43,6 +43,22 @@ Connect). CTWA ad sets promote the Page with `destination_type=WHATSAPP`; a Page
 linked WhatsApp number gets the launch rejected by Meta. The wa.me deep link in the ad
 uses `--owner-phone`, so make sure it's the number customers should land on.
 
+## What "autopilot" means now (the owner's four wants)
+The owner wants ads running, leads on their phone, one daily-budget dial, and silence
+otherwise. That is the default behaviour:
+- **Autopilot with veto (default):** ASSISTED accounts auto-approve and launch their ads
+  **6 hours** after generation unless the owner reviews first (the notification says
+  exactly when). `--autopilot MANUAL` = wait for the owner forever; per-account window
+  via Settings or `auto_approve_hours`. Owner rejections are never overridden.
+- **Destinations:** WhatsApp (default), **phone-call ads** (`--wa-mode CALL` — customers
+  tap and dial the owner), or Cloud API (AI closer). Call/own-number modes run the
+  optimizer in blind mode (spend/frequency signals only).
+- **Lead alerts:** new captured leads SMS the owner instantly via MSG91
+  (`MSG91_LEAD_FLOW_ID`, DLT Flow template, capped `SMS_ALERT_DAILY_CAP`/day).
+- **Pause = pause:** the owner/admin/trial pause stops the Meta campaign itself; resume
+  restores the previous state and reactivates paused ad sets. Paying a lapsed trial
+  auto-resumes ads.
+
 ## Go live
 1. **Autonomous path (hands-off):** pass `--autopilot FULL`. The `progress_accounts` cron
    (every 10 min) drives the account **research → creative (image + video) → launch** with

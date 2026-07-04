@@ -48,6 +48,15 @@ def apply_razorpay_event(*, event: str, subscription_id: str,
             sub.status = SubscriptionStatus.ACTIVE.value
             if period_end:
                 sub.current_period_end = period_end
+            # Paying un-pauses a trial-expiry pause — leaving a paying client's ads off
+            # is the fastest way to lose them (never override an owner's own pause).
+            from leadpilot.core.models import Account as _Account
+
+            acc = s.get(_Account, account_id)
+            if acc is not None and acc.phase == "PAUSED" and acc.pause_reason == "trial":
+                from leadpilot.saathi.pipeline import set_live_state
+
+                set_live_state(s, tenant_id=tenant_id, account_id=account_id, pause=False)
             base, gst, _total = with_gst(TIER_PRICE_PAISE.get(sub.tier, 0))
             period = (period_end or datetime.now(UTC)).strftime("%Y-%m")
             exists = s.scalar(select(Invoice).where(
@@ -94,4 +103,9 @@ def capture_leadgen(*, page_id: str, leadgen_id: str, name: str | None,
         s.add(Notification(tenant_id=tenant_id, account_id=account_id,
                            kind=NotificationKind.HOT_LEAD.value, title="New lead form",
                            body=f"{name or 'A customer'} submitted your lead form.", ref_id=lead.id))
-        return lead.id
+        lead_id = lead.id
+    # After commit: a lead is perishable — SMS the owner now, not at tonight's report.
+    from leadpilot.worker.tasks.alerts import enqueue_lead_alert
+
+    enqueue_lead_alert(tenant_id, account_id, lead_id)
+    return lead_id

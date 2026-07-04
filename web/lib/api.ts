@@ -260,6 +260,15 @@ export const api = {
     req<{ decisions: Decision[] }>(`/accounts/${accountId}/optimize/run`, { method: "POST" }),
   decisions: (accountId: string) =>
     req<Decision[]>(`/accounts/${accountId}/optimization/decisions`),
+  adsSummary: (accountId: string) =>
+    req<{
+      campaign: { status: string; daily_budget_paise: number; destination: string } | null;
+      counts: { active: number; in_review: number; rejected: number };
+      active_adsets: number;
+      creatives: { id: string; headline: string | null; primary_text: string | null;
+        asset_url: string | null; thumb_url: string | null; format: string;
+        review: "active" | "in_review" | "rejected" }[];
+    }>(`/accounts/${accountId}/ads-summary`),
   insights: (accountId: string) => req<Insight[]>(`/accounts/${accountId}/insights`),
   runReport: (accountId: string) =>
     req<{ message: string }>(`/accounts/${accountId}/report/run`, { method: "POST" }),

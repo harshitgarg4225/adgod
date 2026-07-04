@@ -47,6 +47,15 @@ export default function BriefPage() {
     load();
   }, [load]);
 
+  // Queued mode (production): research runs in a worker — poll until the brief exists
+  // instead of rendering an empty page with a live CTA.
+  const briefEmpty = brief !== null && !brief.offer && !(brief as any).id;
+  useEffect(() => {
+    if (!briefEmpty) return;
+    const id = setInterval(load, 4000);
+    return () => clearInterval(id);
+  }, [briefEmpty, load]);
+
   async function saveOffer() {
     const account = getUser()!.account_id!;
     try {
@@ -81,6 +90,8 @@ export default function BriefPage() {
   }
 
   if (error && !brief) return <ErrorState message={error} onRetry={load} />;
+  if (briefEmpty)
+    return <Loading label={t("brief.researching", "Saathi is studying your business…")} />;
   if (!brief || !angles)
     return <Loading label={t("brief.loading", "Saathi is understanding your business…")} />;
 

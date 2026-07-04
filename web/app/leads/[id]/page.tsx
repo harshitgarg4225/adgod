@@ -120,8 +120,8 @@ export default function LeadPage() {
       <section className="space-y-4 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <ScoreBadge score={lead.score} />
-          <Badge>{lead.status.replace(/_/g, " ")}</Badge>
-          <Badge tone="neutral">{lead.source_channel}</Badge>
+          <Badge>{statusLabel(lead.status, t)}</Badge>
+          <Badge tone="neutral">{sourceLabel(lead.source_channel, t)}</Badge>
         </div>
 
         <dl className="grid grid-cols-2 gap-2.5">
@@ -250,4 +250,33 @@ function Field({ label, value }: { label: string; value: string | null }) {
       <dd className="mt-0.5 text-ink">{value || "—"}</dd>
     </div>
   );
+}
+
+function statusLabel(status: string, t: (k: string, f: string) => string): string {
+  return (
+    {
+      NEW: t("leads.stNew", "New"),
+      ENGAGED: t("leads.stEngaged", "Chatting"),
+      QUALIFYING: t("leads.stQualifying", "Being qualified"),
+      QUALIFIED_HOT: t("leads.stHot", "Hot — call now"),
+      QUALIFIED_WARM: t("leads.stWarm", "Warm"),
+      DISQUALIFIED_COLD: t("leads.stCold", "Not a fit"),
+      SPAM: t("leads.spam", "Spam"),
+      BOOKED: t("leads.stBooked", "Booked"),
+      HANDED_OFF: t("leads.stHandoff", "With you"),
+      WON: t("leads.won", "Won"),
+      LOST: t("leads.lost", "Lost"),
+      NO_RESPONSE: t("leads.stSilent", "Went quiet"),
+    } as Record<string, string>
+  )[status] || status.replace(/_/g, " ");
+}
+
+function sourceLabel(source: string, t: (k: string, f: string) => string): string {
+  return (
+    {
+      META_CTWA: t("leads.srcAds", "From your ads"),
+      META_LEADFORM: t("leads.srcForm", "Facebook form"),
+      MANUAL: t("leads.srcManual", "Added by you"),
+    } as Record<string, string>
+  )[source] || source;
 }

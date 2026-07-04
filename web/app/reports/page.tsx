@@ -157,17 +157,23 @@ function actionLabel(action: string, t: (k: string, f: string) => string): strin
 }
 
 function reasonLabel(code: string | null, t: (k: string, f: string) => string): string {
-  if (!code) return t("reports.reason.routine", "Routine optimisation");
+  if (!code) return "";
   return (
     {
-      zero_conversions: t("reports.reason.zero", "It spent without getting any leads"),
-      cpl_over_3x_target: t("reports.reason.highCpl", "It was costing too much per lead"),
-      fatigue_frequency: t("reports.reason.fatigue", "People had seen it too many times"),
-      proven_winner: t("reports.reason.winner", "It was bringing cheap, quality leads"),
-      efficient_scale: t("reports.reason.efficient", "It's working — giving it more budget"),
-      reallocate_to_winner: t("reports.reason.realloc", "Moved budget from a weak ad to a winner"),
-      test_winner_promoted: t("reports.reason.promoted", "A test ad proved itself"),
-      emergency_daily_cap: t("reports.reason.emergency", "Hit the daily safety limit"),
+      zero_conversions: t("reports.rZero", "No leads despite spend — stopped it"),
+      cpl_over_3x_target: t("reports.rCpl", "Cost per lead too high — stopped it"),
+      fatigue_frequency: t("reports.rFatigue", "People saw it too often — made a fresh ad"),
+      fatigue_cooldown: t("reports.rCooldown", "Fresh ad already made today"),
+      proven_winner: t("reports.rWinner", "Working well — gave it more budget"),
+      efficient_scale: t("reports.rEfficient", "Good cost per lead — gave it more budget"),
+      test_winner_promoted: t("reports.rPromoted", "Test ad won — promoted it"),
+      reallocate_to_winner: t("reports.rRealloc", "Moved budget to the best ad"),
+      emergency_daily_cap: t("reports.rEmergency", "Spend hit the safety limit — paused everything"),
+      account_budget_cap: t("reports.rBudgetCap", "Held back by your daily budget"),
+      held_by_account_budget: t("reports.rBudgetCap", "Held back by your daily budget"),
+      auto_recovery_restart: t("reports.rRestart", "Restarted your best ad group"),
+      meta_rejected_replacement: t("reports.rRejected", "Meta rejected an ad — made a fresh one"),
+      stable: t("reports.rStable", "Running steady"),
     } as Record<string, string>
-  )[code] || code.replace(/_/g, " ").toLowerCase();
+  )[code] || code.replace(/_/g, " ");
 }
