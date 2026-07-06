@@ -35,6 +35,9 @@ class BusinessIn(BaseModel):
     city: str
     radius_km: int = 10
     daily_budget_paise: int = 50000
+    # THE goal: the most the owner would pay for one lead. Everything downstream
+    # (kill rules, scaling, reports) optimizes toward this number.
+    target_cpql_paise: int | None = None
     language: str = "hi"
 
 
@@ -77,6 +80,8 @@ def set_business(body: BusinessIn, principal: Principal = Depends(current_princi
         account.business_name = body.business_name
         account.category = body.category
         account.default_language = normalize_locale(body.language)
+        if body.target_cpql_paise:
+            account.target_cpql_paise = body.target_cpql_paise
         if account.phase == AccountPhase.SIGNED_UP.value:
             account.phase = AccountPhase.ONBOARDING.value
 

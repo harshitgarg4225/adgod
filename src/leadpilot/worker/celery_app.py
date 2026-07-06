@@ -92,6 +92,10 @@ app.conf.beat_schedule = {
         "task": "leadpilot.reporter.dispatch_daily",
         "schedule": crontab(hour=20, minute=0),
     },
+    "research-refresh-daily-0400-ist": {  # staleness-gated: only briefs >30 days old
+        "task": "leadpilot.research.refresh_stale",
+        "schedule": crontab(hour=4, minute=0),
+    },
     "retention-sweep-daily-0330-ist": {
         "task": "leadpilot.workflow.retention_sweep",
         "schedule": crontab(hour=3, minute=30),  # off-peak

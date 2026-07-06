@@ -323,6 +323,37 @@ def poll_form_leads() -> dict:
     return {"captured": captured}
 
 
+@app.task(name="leadpilot.research.refresh_stale")
+def refresh_stale_research() -> dict:
+    """Self-learning never stops: a live account whose newest brief is >30 days old gets
+    a fresh research pass (new brief version + fresh angles) so fatigue rotations stop
+    feeding on the same frozen angle forever. Phase is untouched — the live loop keeps
+    running throughout."""
+    from leadpilot.saathi import pipeline
+
+    refreshed = 0
+    with platform_session() as s:
+        rows = s.execute(text(
+            "SELECT a.tenant_id, a.id FROM accounts a "
+            "WHERE a.phase IN ('LIVE','OPTIMIZING','FATIGUE_REFRESH') "
+            "AND a.deleted_at IS NULL AND NOT EXISTS ("
+            "  SELECT 1 FROM business_briefs b WHERE b.account_id = a.id "
+            "  AND b.created_at > now() - interval '30 days')"
+        )).all()
+    for tenant_id, account_id in rows:
+        try:
+            with tenant_session(tenant_id) as s:
+                pipeline.run_research(s, tenant_id=tenant_id, account_id=account_id,
+                                      refresh=True)
+            refreshed += 1
+        except Exception as exc:  # noqa: BLE001 - one account never blocks the fleet
+            log.warning("research_refresh_failed", account=str(account_id),
+                        error=str(exc)[:200])
+    if refreshed:
+        log.info("research_refreshed", accounts=refreshed)
+    return {"refreshed": refreshed}
+
+
 @app.task(name="leadpilot.leads.mark_no_response")
 def mark_no_response() -> dict:
     """Hourly: a lead that engaged but went silent until the 24h WhatsApp service window

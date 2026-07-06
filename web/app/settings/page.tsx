@@ -217,6 +217,31 @@ export default function SettingsPage() {
         {/* Autopilot */}
         <Card className="space-y-3">
           <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
+            {t("settings.goal", "Your goal")}
+          </h2>
+          <p className="text-sm text-ink-muted">
+            {t("settings.goalDesc", "The most you'll pay for one good lead. Saathi optimises to beat this.")}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {[10000, 20000, 40000, 80000].map((g) => {
+              const on = (s.target_cpql_paise || 20000) === g;
+              return (
+                <button
+                  key={g}
+                  onClick={() => save({ target_cpql_paise: g }, t("settings.savedGoal", "Goal updated."))}
+                  className={`tap font-semibold ${
+                    on ? "bg-brand text-white shadow-brand" : "border border-slate-200 bg-white"
+                  }`}
+                >
+                  ≤ ₹{g / 100}/lead
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+
+        <Card className="space-y-3">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
             {t("settings.autopilot", "Autopilot")}
           </h2>
           <div className="space-y-2">

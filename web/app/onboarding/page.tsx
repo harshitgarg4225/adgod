@@ -11,6 +11,7 @@ const CATEGORIES = [
   "education_consultant", "healthcare", "other",
 ];
 const BUDGETS = [30000, 50000, 100000]; // paise: ₹300 / ₹500 / ₹1,000
+const CPQL_GOALS = [10000, 20000, 40000, 80000]; // paise: ₹100 / ₹200 / ₹400 / ₹800 per lead
 
 export default function Onboarding() {
   const router = useRouter();
@@ -25,6 +26,7 @@ export default function Onboarding() {
     city: "",
     radius_km: 10,
     daily_budget_paise: 50000,
+    target_cpql_paise: 20000,
     language: "hi",
   });
 
@@ -34,6 +36,7 @@ export default function Onboarding() {
     t("ob.step.offer", "Offer"),
     t("ob.step.area", "Area"),
     t("ob.step.budget", "Budget"),
+    t("ob.step.goal", "Goal"),
   ];
 
   // Per-step validation gates "Next".
@@ -42,6 +45,7 @@ export default function Onboarding() {
     form.offer.trim().length >= 5,
     form.city.trim().length >= 2,
     form.daily_budget_paise > 0,
+    form.target_cpql_paise > 0,
   ][step];
 
   async function finish() {
@@ -171,6 +175,27 @@ export default function Onboarding() {
                   "Nothing is charged until your ads go live, and you can pause spending anytime."
                 )}
               </span>
+            </div>
+          </Field>
+        )}
+
+        {step === 4 && (
+          <Field
+            title={t("ob.q.goal", "What's a good lead worth to you?")}
+            sub={t("ob.encourage.goal", "Saathi keeps your cost per lead under this — chasing cheaper, better leads.")}
+          >
+            <div className="grid grid-cols-2 gap-2">
+              {CPQL_GOALS.map((g) => (
+                <button
+                  key={g}
+                  onClick={() => set("target_cpql_paise", g)}
+                  className={`tap font-semibold ${
+                    form.target_cpql_paise === g ? "bg-brand text-white shadow-brand" : "border border-slate-200 bg-white"
+                  }`}
+                >
+                  {t("ob.perLead", "≤ ₹{n}/lead").replace("{n}", String(g / 100))}
+                </button>
+              ))}
             </div>
           </Field>
         )}

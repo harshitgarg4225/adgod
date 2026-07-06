@@ -31,6 +31,8 @@ class SettingsOut(BaseModel):
     service_radius_km: int
     daily_budget_paise: int
     daily_budget_display: str
+    target_cpql_paise: int
+    target_cpql_display: str
     default_language: str
     autopilot_level: str
     auto_approve_hours: int
@@ -54,6 +56,8 @@ class SettingsPatch(BaseModel):
     daily_budget_paise: int | None = Field(default=None, ge=10000)  # ≥ ₹100/day
     # Hard monthly spend ceiling (enforced at launch + optimizer); None/0 = uncapped.
     monthly_cap_paise: int | None = Field(default=None, ge=0)
+    # The goal: max acceptable cost per qualified lead (₹20–₹5000).
+    target_cpql_paise: int | None = Field(default=None, ge=2000, le=500000)
     default_language: str | None = None
     autopilot_level: str | None = None
     # 0 disables auto-launch (Saathi waits for the owner forever); 1-72 hours otherwise.
@@ -104,6 +108,8 @@ def get_settings(account_id: str, principal: Principal = Depends(current_princip
             service_radius_km=profile.service_radius_km if profile else 10,
             daily_budget_paise=budget,
             daily_budget_display=format_paise(budget),
+            target_cpql_paise=account.target_cpql_paise or 20000,
+            target_cpql_display=format_paise(account.target_cpql_paise or 20000),
             default_language=account.default_language,
             autopilot_level=account.autopilot_level,
             auto_approve_hours=account.auto_approve_hours,
@@ -139,6 +145,8 @@ def update_settings(
             account.autopilot_level = patch.autopilot_level
         if patch.auto_approve_hours is not None:
             account.auto_approve_hours = patch.auto_approve_hours
+        if patch.target_cpql_paise is not None:
+            account.target_cpql_paise = patch.target_cpql_paise
         if patch.gstin is not None:
             account.gstin = patch.gstin
         if patch.legal_name is not None:

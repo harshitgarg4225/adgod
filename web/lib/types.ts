@@ -78,6 +78,8 @@ export interface Settings {
   service_radius_km: number;
   daily_budget_paise: number;
   daily_budget_display: string;
+  target_cpql_paise: number;
+  target_cpql_display: string;
   default_language: string;
   autopilot_level: string;
   phase: string;
@@ -119,6 +121,8 @@ export interface SettingsPatch {
   service_area_city: string;
   service_radius_km: number;
   daily_budget_paise: number;
+  target_cpql_paise: number;
+  auto_approve_hours: number;
   default_language: string;
   autopilot_level: string;
   gstin: string;
@@ -154,6 +158,7 @@ export interface BusinessInput {
   city: string;
   radius_km: number;
   daily_budget_paise: number;
+  target_cpql_paise: number;
   language: string;
 }
 

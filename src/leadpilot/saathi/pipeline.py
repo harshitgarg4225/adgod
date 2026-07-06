@@ -91,7 +91,8 @@ def _now() -> datetime:
 
 # ─────────────────────────── Scout: research ───────────────────────────
 
-def run_research(session: Session, *, tenant_id: UUID, account_id: UUID) -> UUID:
+def run_research(session: Session, *, tenant_id: UUID, account_id: UUID,
+                 refresh: bool = False) -> UUID:
     account = session.get(Account, account_id)
     profile = session.scalar(select(BusinessProfile).where(BusinessProfile.account_id == account_id))
     city = (profile.service_area_city if profile else None) or "your city"
@@ -129,8 +130,12 @@ def run_research(session: Session, *, tenant_id: UUID, account_id: UUID) -> UUID
     for a in out.angles:
         session.add(Angle(tenant_id=tenant_id, account_id=account_id, brief_id=brief.id,
                           title=a.title, rationale=a.rationale, hypothesis=a.hypothesis))
-    account.phase = AccountPhase.RESEARCHED.value
-    log.info("research_done", account=str(account_id), angles=len(out.angles))
+    if not refresh:
+        # A post-launch refresh must never knock a LIVE account out of the live loop —
+        # it only versions the brief and appends fresh angles for future rotations.
+        account.phase = AccountPhase.RESEARCHED.value
+    log.info("research_done", account=str(account_id), angles=len(out.angles),
+             refresh=refresh)
     return brief.id
 
 
@@ -464,7 +469,11 @@ def launch_campaigns(session: Session, *, tenant_id: UUID, account_id: UUID) -> 
         adset_name = f"{role.value} {city}"
         targeting = {
             "geo_locations": {"cities": [{"name": city, "radius": radius, "distance_unit": "kilometer"}]},
-            "age_min": 18, "age_max": 55, "_role": role.value,
+            "age_min": 18, "age_max": 55,
+            # Explicit placements: the promise is "Facebook AND Instagram" — never leave
+            # it to Meta's default placement expansion to decide.
+            "publisher_platforms": ["facebook", "instagram"],
+            "_role": role.value,
         }
         if role == AdSetRole.RETARGETING:
             # Warm audience: people who engaged with the ads / clicked to WhatsApp.
