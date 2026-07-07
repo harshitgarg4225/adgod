@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { Button, Icon, Input, TopBar, Textarea, useToast } from "@/components/ui";
 
 const CATEGORIES = [
@@ -15,7 +15,7 @@ const CPQL_GOALS = [10000, 20000, 40000, 80000]; // paise: ₹100 / ₹200 / ₹
 
 export default function Onboarding() {
   const router = useRouter();
-  const t = useT();
+  const { t, locale } = useI18n();
   const toast = useToast();
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -27,7 +27,9 @@ export default function Onboarding() {
     radius_km: 10,
     daily_budget_paise: 50000,
     target_cpql_paise: 20000,
-    language: "hi",
+    // Save the account default in the language the owner picked at login, not a
+    // hardcoded default — otherwise a Punjabi/English owner gets Hindi server copy.
+    language: locale,
   });
 
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, saveSession } from "@/lib/api";
-import { useI18n } from "@/lib/i18n";
+import { LANGUAGES, getStoredLocale, useI18n } from "@/lib/i18n";
 import { Button, Icon, Input, SaathiAvatar } from "@/components/ui";
 
 const PHONE_RE = /^\+?[6-9]\d{9}$/;
@@ -48,8 +48,12 @@ export default function Login() {
       saveSession(tk);
       // Hindi-first: apply the account's stored language immediately (provisioned owners
       // have locale=hi; without this the whole first run renders in English).
+      // Honor an on-screen language pick; only fall back to the account's saved
+      // language when this device has no explicit choice yet (fresh browser).
       const userLocale = (tk.user as any)?.locale;
-      if (userLocale === "hi" || userLocale === "en") setLocale(userLocale);
+      if (!getStoredLocale() && LANGUAGES.some((l) => l.code === userLocale)) {
+        setLocale(userLocale);
+      }
       // Route by role: an admin/partner has no owner account — /dashboard would bounce
       // them straight back to /login in a loop.
       const role = (tk.user as any)?.role;
@@ -87,16 +91,16 @@ export default function Login() {
         </div>
 
         {/* Language — Hindi-first owners must not face an English wall on screen one */}
-        <div className="flex justify-center gap-2">
-          {([["hi", "हिन्दी"], ["en", "English"]] as const).map(([l, label]) => (
+        <div className="flex flex-wrap justify-center gap-2">
+          {LANGUAGES.map((l) => (
             <button
-              key={l}
-              onClick={() => setLocale(l)}
+              key={l.code}
+              onClick={() => setLocale(l.code)}
               className={`rounded-full px-4 py-1.5 text-sm font-medium ${
-                locale === l ? "bg-brand text-white" : "border border-slate-200 text-ink-soft"
+                locale === l.code ? "bg-brand text-white" : "border border-slate-200 text-ink-soft"
               }`}
             >
-              {label}
+              {l.label}
             </button>
           ))}
         </div>

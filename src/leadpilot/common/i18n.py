@@ -6,116 +6,138 @@ deterministic system strings (errors, notifications, fixed UI labels served by t
 """
 from __future__ import annotations
 
-SUPPORTED_LOCALES = ("en", "hi", "ta", "te", "mr", "gu", "kn", "bn")
+SUPPORTED_LOCALES = ("en", "hi", "pa", "ta", "te", "mr", "gu", "kn", "bn")
 DEFAULT_LOCALE = "en"
 
 STRINGS: dict[str, dict[str, str]] = {
     "error.generic": {
         "en": "Something went wrong. Please try again.",
         "hi": "कुछ गड़बड़ हो गई। कृपया फिर से कोशिश करें।",
+        "pa": "ਕੁਝ ਗੜਬੜ ਹੋ ਗਈ। ਕਿਰਪਾ ਕਰਕੇ ਫਿਰ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
     },
     "error.validation": {
         "en": "Please check the details you entered.",
         "hi": "कृपया दर्ज की गई जानकारी जाँच लें।",
+        "pa": "ਕਿਰਪਾ ਕਰਕੇ ਦਰਜ ਕੀਤੀ ਜਾਣਕਾਰੀ ਜਾਂਚ ਲਓ।",
     },
     "error.unauthorized": {
         "en": "Please sign in to continue.",
         "hi": "जारी रखने के लिए कृपया साइन इन करें।",
+        "pa": "ਜਾਰੀ ਰੱਖਣ ਲਈ ਕਿਰਪਾ ਕਰਕੇ ਸਾਈਨ ਇਨ ਕਰੋ।",
     },
     "error.forbidden": {
         "en": "You don't have access to this.",
         "hi": "आपके पास इसकी अनुमति नहीं है।",
+        "pa": "ਤੁਹਾਡੇ ਕੋਲ ਇਸ ਦੀ ਇਜਾਜ਼ਤ ਨਹੀਂ ਹੈ।",
     },
     "error.not_found": {
         "en": "We couldn't find what you were looking for.",
         "hi": "हमें वह नहीं मिला जो आप ढूँढ रहे थे।",
+        "pa": "ਜੋ ਤੁਸੀਂ ਲੱਭ ਰਹੇ ਸੀ ਉਹ ਸਾਨੂੰ ਨਹੀਂ ਮਿਲਿਆ।",
     },
     "error.conflict": {
         "en": "This was already done.",
         "hi": "यह पहले ही हो चुका है।",
+        "pa": "ਇਹ ਪਹਿਲਾਂ ਹੀ ਹੋ ਚੁੱਕਾ ਹੈ।",
     },
     "notify.hot_lead.title": {
         "en": "🔥 Hot lead",
         "hi": "🔥 ज़बरदस्त ग्राहक",
+        "pa": "🔥 ਜ਼ਬਰਦਸਤ ਗਾਹਕ",
     },
     "notify.hot_lead.body": {
         "en": "{name} is interested in {intent}. Reply now on WhatsApp.",
         "hi": "{name} को {intent} में दिलचस्पी है। अभी WhatsApp पर जवाब दें।",
+        "pa": "{name} ਨੂੰ {intent} ਵਿੱਚ ਦਿਲਚਸਪੀ ਹੈ। ਹੁਣੇ WhatsApp 'ਤੇ ਜਵਾਬ ਦਿਓ।",
     },
     # ── Account phase, in the owner's words (HomeOut.campaign_status chips) ──
-    "phase.SIGNED_UP": {"en": "Finish setup", "hi": "सेटअप पूरा करें"},
-    "phase.ONBOARDING": {"en": "Finishing setup", "hi": "सेटअप हो रहा है"},
-    "phase.RESEARCHED": {"en": "Preparing your ads", "hi": "आपके ऐड्स की तैयारी"},
-    "phase.CREATIVE_GENERATED": {"en": "Ads being designed", "hi": "ऐड्स बन रहे हैं"},
-    "phase.PENDING_APPROVAL": {"en": "Ready for your review", "hi": "आपके रिव्यू का इंतज़ार"},
-    "phase.APPROVED": {"en": "Launching soon", "hi": "जल्द लॉन्च होंगे"},
-    "phase.LAUNCHING": {"en": "Launching", "hi": "लॉन्च हो रहे हैं"},
-    "phase.LIVE": {"en": "Live", "hi": "चालू"},
-    "phase.OPTIMIZING": {"en": "Live · Optimizing", "hi": "चालू · सुधार जारी"},
-    "phase.FATIGUE_REFRESH": {"en": "Live · Refreshing ads", "hi": "चालू · नए ऐड्स"},
-    "phase.PAUSED": {"en": "Paused", "hi": "रुका हुआ"},
-    "phase.CHURNED": {"en": "Account closed", "hi": "खाता बंद"},
+    "phase.SIGNED_UP": {"en": "Finish setup", "hi": "सेटअप पूरा करें", "pa": "ਸੈੱਟਅੱਪ ਪੂਰਾ ਕਰੋ"},
+    "phase.ONBOARDING": {"en": "Finishing setup", "hi": "सेटअप हो रहा है", "pa": "ਸੈੱਟਅੱਪ ਹੋ ਰਿਹਾ ਹੈ"},
+    "phase.RESEARCHED": {"en": "Preparing your ads", "hi": "आपके ऐड्स की तैयारी", "pa": "ਤੁਹਾਡੇ ਐਡਸ ਦੀ ਤਿਆਰੀ"},
+    "phase.CREATIVE_GENERATED": {"en": "Ads being designed", "hi": "ऐड्स बन रहे हैं", "pa": "ਐਡਸ ਬਣ ਰਹੇ ਹਨ"},
+    "phase.PENDING_APPROVAL": {"en": "Ready for your review", "hi": "आपके रिव्यू का इंतज़ार", "pa": "ਤੁਹਾਡੇ ਰਿਵਿਊ ਦੀ ਉਡੀਕ"},
+    "phase.APPROVED": {"en": "Launching soon", "hi": "जल्द लॉन्च होंगे", "pa": "ਜਲਦੀ ਲੌਂਚ ਹੋਣਗੇ"},
+    "phase.LAUNCHING": {"en": "Launching", "hi": "लॉन्च हो रहे हैं", "pa": "ਲੌਂਚ ਹੋ ਰਹੇ ਹਨ"},
+    "phase.LIVE": {"en": "Live", "hi": "चालू", "pa": "ਚਾਲੂ"},
+    "phase.OPTIMIZING": {"en": "Live · Optimizing", "hi": "चालू · सुधार जारी", "pa": "ਚਾਲੂ · ਸੁਧਾਰ ਜਾਰੀ"},
+    "phase.FATIGUE_REFRESH": {"en": "Live · Refreshing ads", "hi": "चालू · नए ऐड्स", "pa": "ਚਾਲੂ · ਨਵੇਂ ਐਡਸ"},
+    "phase.PAUSED": {"en": "Paused", "hi": "रुका हुआ", "pa": "ਰੁਕਿਆ ਹੋਇਆ"},
+    "phase.CHURNED": {"en": "Account closed", "hi": "खाता बंद", "pa": "ਖਾਤਾ ਬੰਦ"},
     # ── Saathi's one-line status (the most-read sentence in the product) ──
     "saathi.setup": {
         "en": "Let's finish setting up so I can start finding leads for you.",
         "hi": "सेटअप पूरा करें, फिर मैं आपके लिए ग्राहक ढूँढना शुरू करूँ।",
+        "pa": "ਸੈੱਟਅੱਪ ਪੂਰਾ ਕਰੋ, ਫਿਰ ਮੈਂ ਤੁਹਾਡੇ ਲਈ ਗਾਹਕ ਲੱਭਣੇ ਸ਼ੁਰੂ ਕਰਾਂ।",
     },
     "saathi.preparing": {
         "en": "I'm studying your business and designing your ads.",
         "hi": "मैं आपका बिज़नेस समझकर आपके ऐड्स बना रहा हूँ।",
+        "pa": "ਮੈਂ ਤੁਹਾਡਾ ਬਿਜ਼ਨਸ ਸਮਝ ਕੇ ਤੁਹਾਡੇ ਐਡਸ ਬਣਾ ਰਿਹਾ ਹਾਂ।",
     },
     "saathi.pending_approval": {
         "en": "Your ads are ready — tap above to review, or I'll launch them at {when}.",
         "hi": "आपके ऐड्स तैयार हैं — ऊपर टैप करके देखें, या {when} बजे मैं खुद लॉन्च कर दूँगा।",
+        "pa": "ਤੁਹਾਡੇ ਐਡਸ ਤਿਆਰ ਹਨ — ਉੱਪਰ ਟੈਪ ਕਰਕੇ ਵੇਖੋ, ਜਾਂ {when} ਵਜੇ ਮੈਂ ਖੁਦ ਲੌਂਚ ਕਰ ਦਿਆਂਗਾ।",
     },
     "saathi.pending_approval_manual": {
         "en": "Your ads are ready — tap above to review and launch them.",
         "hi": "आपके ऐड्स तैयार हैं — ऊपर टैप करके देखें और लॉन्च करें।",
+        "pa": "ਤੁਹਾਡੇ ਐਡਸ ਤਿਆਰ ਹਨ — ਉੱਪਰ ਟੈਪ ਕਰਕੇ ਵੇਖੋ ਅਤੇ ਲੌਂਚ ਕਰੋ।",
     },
     "saathi.launching": {
         "en": "Approved! I'm sending your ads to Meta now.",
         "hi": "अप्रूव हो गया! मैं ऐड्स Meta को भेज रहा हूँ।",
+        "pa": "ਅਪਰੂਵ ਹੋ ਗਿਆ! ਮੈਂ ਐਡਸ Meta ਨੂੰ ਭੇਜ ਰਿਹਾ ਹਾਂ।",
     },
     "saathi.paused": {
         "en": "Your ads are paused. Resume whenever you're ready.",
         "hi": "आपके ऐड्स रुके हुए हैं। जब चाहें फिर चालू करें।",
+        "pa": "ਤੁਹਾਡੇ ਐਡਸ ਰੁਕੇ ਹੋਏ ਹਨ। ਜਦੋਂ ਚਾਹੋ ਫਿਰ ਚਾਲੂ ਕਰੋ।",
     },
     "saathi.qualified_today": {
         "en": "I've qualified {n} lead(s) for you today. Keep going! 🎉",
         "hi": "आज मैंने आपके लिए {n} ग्राहक तैयार किए हैं। बधाई! 🎉",
+        "pa": "ਅੱਜ ਮੈਂ ਤੁਹਾਡੇ ਲਈ {n} ਗਾਹਕ ਤਿਆਰ ਕੀਤੇ ਹਨ। ਵਧਾਈਆਂ! 🎉",
     },
     "saathi.own_number": {
         "en": "Your ads send customers straight to your WhatsApp. Log them here so I can track results.",
         "hi": "ऐड्स से ग्राहक सीधे आपके WhatsApp पर आते हैं। उन्हें यहाँ दर्ज करें ताकि मैं हिसाब रखूँ।",
+        "pa": "ਐਡਸ ਤੋਂ ਗਾਹਕ ਸਿੱਧਾ ਤੁਹਾਡੇ WhatsApp 'ਤੇ ਆਉਂਦੇ ਹਨ। ਉਹਨਾਂ ਨੂੰ ਇੱਥੇ ਦਰਜ ਕਰੋ ਤਾਂ ਜੋ ਮੈਂ ਹਿਸਾਬ ਰੱਖਾਂ।",
     },
     "saathi.call_mode": {
         "en": "Your ads make customers call you directly. Log the calls here so I can track results.",
         "hi": "ऐड्स से ग्राहक सीधे आपको कॉल करते हैं। कॉल यहाँ दर्ज करें ताकि मैं हिसाब रखूँ।",
+        "pa": "ਐਡਸ ਤੋਂ ਗਾਹਕ ਸਿੱਧਾ ਤੁਹਾਨੂੰ ਕਾਲ ਕਰਦੇ ਹਨ। ਕਾਲ ਇੱਥੇ ਦਰਜ ਕਰੋ ਤਾਂ ਜੋ ਮੈਂ ਹਿਸਾਬ ਰੱਖਾਂ।",
     },
     "saathi.watching": {
         "en": "I'm watching your ads 24×7 and qualifying every lead that comes in.",
         "hi": "मैं 24×7 आपके ऐड्स पर नज़र रखता हूँ और हर ग्राहक परखता हूँ।",
+        "pa": "ਮੈਂ 24×7 ਤੁਹਾਡੇ ਐਡਸ 'ਤੇ ਨਜ਼ਰ ਰੱਖਦਾ ਹਾਂ ਅਤੇ ਹਰ ਗਾਹਕ ਨੂੰ ਪਰਖਦਾ ਹਾਂ।",
     },
     # ── Autopilot / ad lifecycle notifications ──
-    "notify.auto_launch.title": {"en": "Your ads are ready", "hi": "आपके ऐड्स तैयार हैं"},
+    "notify.auto_launch.title": {"en": "Your ads are ready", "hi": "आपके ऐड्स तैयार हैं", "pa": "ਤੁਹਾਡੇ ਐਡਸ ਤਿਆਰ ਹਨ"},
     "notify.auto_launch.body": {
         "en": "{n} ads are ready. Review them now, or Saathi launches them automatically by {when}.",
         "hi": "{n} ऐड्स तैयार हैं। अभी देख लें, वरना Saathi {when} बजे तक खुद लॉन्च कर देगा।",
+        "pa": "{n} ਐਡਸ ਤਿਆਰ ਹਨ। ਹੁਣੇ ਵੇਖ ਲਓ, ਨਹੀਂ ਤਾਂ Saathi {when} ਵਜੇ ਤੱਕ ਖੁਦ ਲੌਂਚ ਕਰ ਦੇਵੇਗਾ।",
     },
-    "notify.auto_launched.title": {"en": "Ads launched on autopilot", "hi": "ऐड्स ऑटोपायलट पर लॉन्च"},
+    "notify.auto_launched.title": {"en": "Ads launched on autopilot", "hi": "ऐड्स ऑटोपायलट पर लॉन्च", "pa": "ਐਡਸ ਆਟੋਪਾਇਲਟ 'ਤੇ ਲੌਂਚ"},
     "notify.auto_launched.body": {
         "en": "Saathi approved and launched your ads as scheduled. You can pause anytime.",
         "hi": "Saathi ने तय समय पर आपके ऐड्स लॉन्च कर दिए। आप कभी भी रोक सकते हैं।",
+        "pa": "Saathi ਨੇ ਤੈਅ ਸਮੇਂ 'ਤੇ ਤੁਹਾਡੇ ਐਡਸ ਲੌਂਚ ਕਰ ਦਿੱਤੇ। ਤੁਸੀਂ ਕਦੇ ਵੀ ਰੋਕ ਸਕਦੇ ਹੋ।",
     },
-    "notify.ad_rejected.title": {"en": "An ad needs a change", "hi": "एक ऐड में बदलाव चाहिए"},
+    "notify.ad_rejected.title": {"en": "An ad needs a change", "hi": "एक ऐड में बदलाव चाहिए", "pa": "ਇੱਕ ਐਡ ਵਿੱਚ ਬਦਲਾਅ ਚਾਹੀਦਾ"},
     "notify.ad_rejected.body": {
         "en": "Meta didn't approve one ad. Saathi paused it and is making a fresh one.",
         "hi": "Meta ने एक ऐड मंज़ूर नहीं किया। Saathi ने उसे रोककर नया बनाना शुरू कर दिया।",
+        "pa": "Meta ਨੇ ਇੱਕ ਐਡ ਮਨਜ਼ੂਰ ਨਹੀਂ ਕੀਤਾ। Saathi ਨੇ ਉਸ ਨੂੰ ਰੋਕ ਕੇ ਨਵਾਂ ਬਣਾਉਣਾ ਸ਼ੁਰੂ ਕਰ ਦਿੱਤਾ।",
     },
-    "notify.regenerating.title": {"en": "Making fresh ads", "hi": "नए ऐड्स बन रहे हैं"},
+    "notify.regenerating.title": {"en": "Making fresh ads", "hi": "नए ऐड्स बन रहे हैं", "pa": "ਨਵੇਂ ਐਡਸ ਬਣ ਰਹੇ ਹਨ"},
     "notify.regenerating.body": {
         "en": "The first batch didn't pass checks, so Saathi is creating a new set of ads.",
         "hi": "पहले ऐड्स जाँच में पास नहीं हुए, इसलिए Saathi नए ऐड्स बना रहा है।",
+        "pa": "ਪਹਿਲੇ ਐਡਸ ਜਾਂਚ ਵਿੱਚ ਪਾਸ ਨਹੀਂ ਹੋਏ, ਇਸ ਲਈ Saathi ਨਵੇਂ ਐਡਸ ਬਣਾ ਰਿਹਾ ਹੈ।",
     },
 }
 
