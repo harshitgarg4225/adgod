@@ -115,3 +115,31 @@ def test_fresh_account_is_not_refreshed(seeded):
     # A brief created today must NOT trip the staleness gate.
     _launch()
     assert refresh_stale_research()["refreshed"] == 0
+
+
+# ── copy CTA matches the ad's destination ────────────────────────────────────
+
+def test_call_mode_copywriter_is_told_the_cta_is_a_call(seeded, monkeypatch):
+    """A CALL-destination ad must never carry 'message us on WhatsApp' copy — the
+    Maker agent is told which channel the button opens."""
+    from leadpilot.core.models import WhatsAppConnection
+    from leadpilot.saathi.agents.maker import MakerAgent
+
+    with tenant_session(DEMO_TENANT_ID) as s:
+        pipeline.run_research(s, tenant_id=DEMO_TENANT_ID, account_id=DEMO_ACCOUNT_ID)
+        conn = s.scalar(select(WhatsAppConnection).where(
+            WhatsAppConnection.account_id == DEMO_ACCOUNT_ID))
+        conn.mode = "CALL"
+
+    seen: list[dict] = []
+    orig = MakerAgent.run
+
+    def spy(self, session, *, tenant_id, account_id, context):
+        seen.append(context)
+        return orig(self, session, tenant_id=tenant_id, account_id=account_id,
+                    context=context)
+
+    monkeypatch.setattr(MakerAgent, "run", spy)
+    with tenant_session(DEMO_TENANT_ID) as s:
+        pipeline.run_creative(s, tenant_id=DEMO_TENANT_ID, account_id=DEMO_ACCOUNT_ID)
+    assert seen and all("phone call" in c["cta_channel"] for c in seen)

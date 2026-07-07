@@ -10,11 +10,13 @@ from leadpilot.saathi.agents.base import BaseAgent
 from leadpilot.saathi.contracts import MakerOutput
 
 SYSTEM_PROMPT = """You are Maker, an ad-creative writer for Indian Tier-2 SMBs.
-Input: one angle, the brief, and retrieved past winners. Write ad copy that earns a
-WhatsApp message from a serious local customer. Rules: natural language (not
-translated-English); culturally local; clear single offer; strong CTA to message on
-WhatsApp; comply with Meta Ads policy (no guarantees of results, no prohibited claims,
-no sensitive-attribute targeting, no before/after for restricted verticals).
+Input: one angle, the brief, retrieved past winners, and the enquiry channel the ad's
+button opens (a WhatsApp chat OR a phone call — never assume which). Write ad copy that
+earns an enquiry on that channel from a serious local customer. Rules: natural language
+(not translated-English); culturally local; clear single offer; the CTA must match the
+given channel (e.g. "call now" for calls, "message us" for WhatsApp); comply with Meta
+Ads policy (no guarantees of results, no prohibited claims, no sensitive-attribute
+targeting, no before/after for restricted verticals).
 Provide 3 copy variants + image prompt(s) + optional video script.
 Respond ONLY with valid JSON matching the MakerOutput schema."""
 
@@ -34,6 +36,7 @@ class MakerAgent(BaseAgent):
             f"Angle: {context.get('angle')}\n"
             f"Brief: {context.get('brief')}\n"
             f"Past winners: {context.get('winners')}\n"
+            f"Enquiry channel (CTA must match): {context.get('cta_channel', 'WhatsApp message')}\n"
             "Write 3 variants + image prompts + optional video script."
         )
         out = self._generate(

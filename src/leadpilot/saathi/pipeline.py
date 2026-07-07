@@ -33,6 +33,7 @@ from leadpilot.core.enums import (
     LeadStatus,
     NotificationKind,
     OptimizationAction,
+    WhatsAppMode,
 )
 from leadpilot.core.models import (
     Account,
@@ -154,6 +155,16 @@ def run_creative(session: Session, *, tenant_id: UUID, account_id: UUID, max_ang
     full_autopilot = account.autopilot_level == AutopilotLevel.FULL.value
     creative_ids: list[UUID] = []
 
+    # The ad's button opens either a WhatsApp chat or a phone call — the copy's CTA
+    # must match, or a CALL ad reads "message us on WhatsApp" under a CALL NOW button.
+    wa_conn = session.scalar(
+        select(WhatsAppConnection).where(WhatsAppConnection.account_id == account_id))
+    cta_channel = (
+        "phone call (the button dials the business — tell them to call now)"
+        if wa_conn and wa_conn.mode == WhatsAppMode.CALL.value
+        else "WhatsApp message (the button opens a WhatsApp chat)"
+    )
+
     for angle in angles:
         # Memory: retrieve past winning creatives similar to this angle (tenant-scoped).
         winners = [
@@ -164,7 +175,8 @@ def run_creative(session: Session, *, tenant_id: UUID, account_id: UUID, max_ang
         out = MakerAgent().run(
             session, tenant_id=tenant_id, account_id=account_id,
             context={"language": account.default_language, "angle": angle.title,
-                     "brief": brief.offer if brief else "", "winners": winners},
+                     "brief": brief.offer if brief else "", "winners": winners,
+                     "cta_channel": cta_channel},
         )
         variant = out.variants[0]
         comp = guard.record(check_creative_copy(
