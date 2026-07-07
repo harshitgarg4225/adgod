@@ -15,7 +15,7 @@ from leadpilot.common.errors import NotFoundError, ValidationError
 from leadpilot.core.db import tenant_session
 from leadpilot.core.enums import SubscriptionStatus, SubscriptionTier, WalletEntryType
 from leadpilot.core.models import Account, Invoice, Subscription, WalletLedger
-from leadpilot.core.money import format_paise, with_gst
+from leadpilot.core.money import format_paise, format_rupees, with_gst
 from leadpilot.integrations.razorpay import get_razorpay_adapter
 from leadpilot.integrations.razorpay.base import TIER_PRICE_PAISE, TRIAL_DAYS
 
@@ -202,5 +202,9 @@ def tiers() -> dict:
     for t in SubscriptionTier:
         base, gst, total = with_gst(TIER_PRICE_PAISE[t.value])
         out.append({"tier": t.value, "price_paise": base, "gst_paise": gst,
-                    "total_paise": total, "price_display": format_paise(total)})
+                    "total_paise": total,
+                    # Headline the clean plan price (₹1,499), GST noted separately —
+                    # Indian-SaaS convention. Keep the gross for the checkout confirmation.
+                    "price_display": format_rupees(base),
+                    "total_display": format_paise(total)})
     return {"tiers": out, "manual_mode": settings.mock_razorpay}

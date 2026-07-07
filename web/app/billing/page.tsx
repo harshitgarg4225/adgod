@@ -154,7 +154,7 @@ export default function Billing() {
               <p className="mt-2 text-xs text-ink-faint">
                 {manualMode
                   ? t("billing.manualNote", "Billing is handled by your Salmor manager.")
-                  : t("billing.gstTrial", "incl. 18% GST · 7-day free trial · cancel anytime")}
+                  : t("billing.gstTrial", "+ 18% GST · 7-day free trial · cancel anytime")}
               </p>
               <Button
                 fullWidth

@@ -41,6 +41,7 @@ export default function Dashboard() {
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [busyPause, setBusyPause] = useState(false);
   const [actingAs, setActingAs] = useState<string | null>(null);
+  const [needsConnect, setNeedsConnect] = useState(false);
 
   useEffect(() => {
     setActingAs(getActingAs());
@@ -60,6 +61,16 @@ export default function Dashboard() {
       ]);
       setHome(h);
       setLeads(l);
+      // Pre-launch accounts may still owe us the lead destination — surface the
+      // one next action instead of a dead dashboard.
+      if (["SIGNED_UP", "ONBOARDING"].includes(h.phase)) {
+        try {
+          const st = await api.onboardingStatus();
+          setNeedsConnect(!!st.missing_steps?.includes("whatsapp_connection"));
+        } catch {
+          /* keep dashboard usable */
+        }
+      }
     } catch (e: any) {
       setError(e.userMessage || t("common.somethingWrong", "Could not load your dashboard."));
     }
@@ -161,6 +172,39 @@ export default function Dashboard() {
             </div>
             <Icon name="chevronLeft" className="h-5 w-5 rotate-180 text-ink-faint" />
           </Link>
+        )}
+
+        {/* Setup phases: a provisioned owner lands here with a business profile but may
+            still owe the lead destination. One clear next action — never a dead end. */}
+        {home && ["SIGNED_UP", "ONBOARDING"].includes(home.phase) && (
+          needsConnect ? (
+            <Link
+              href="/onboarding/connect"
+              className="block rounded-2xl bg-brand p-4 text-white shadow-brand transition active:scale-[0.99]"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-bold">
+                    {t("dashboard.connectCtaTitle", "One step left: where should customers reach you?")}
+                  </p>
+                  <p className="mt-0.5 text-sm text-white/85">
+                    {t("dashboard.connectCtaHint", "WhatsApp, phone calls — you choose")}
+                  </p>
+                </div>
+                <Icon name="chevronLeft" className="h-6 w-6 shrink-0 rotate-180" />
+              </div>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-card">
+              <Icon name="sparkle" className="h-6 w-6 shrink-0 text-brand" />
+              <p className="text-sm text-ink-soft">
+                {t(
+                  "dashboard.preparing",
+                  "Saathi is preparing your ads — you'll see them here for review. Nothing needed from you right now."
+                )}
+              </p>
+            </div>
+          )
         )}
 
         {/* The one human gate on the ASSISTED path: without this card a provisioned

@@ -1,7 +1,7 @@
 """Money is always integer paise; no float ever touches a money value (PRD §8)."""
 import pytest
 
-from leadpilot.core.money import Paise, format_paise, gst_paise, with_gst
+from leadpilot.core.money import Paise, format_paise, format_rupees, gst_paise, with_gst
 
 
 def test_paise_rejects_float():
@@ -32,3 +32,12 @@ def test_gst_is_integer_paise():
 def test_format_paise():
     assert format_paise(50000) == "₹500.00"
     assert format_paise(149900) == "₹1,499.00"
+
+
+def test_format_rupees_drops_round_paise():
+    # A clean plan price shows without the noisy ".00".
+    assert format_rupees(149900) == "₹1,499"
+    assert format_rupees(699900) == "₹6,999"
+    # A fractional (GST-inclusive) amount keeps its paise.
+    assert format_rupees(176882) == "₹1,768.82"
+    assert format_rupees(0) == "₹0"

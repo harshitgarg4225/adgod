@@ -60,6 +60,9 @@ export default function Login() {
       try {
         const st = await api.onboardingStatus();
         if (st.missing_steps?.includes("business_profile")) dest = "/onboarding";
+        // Provisioned owners already have a business profile but still owe one answer —
+        // where leads should reach them. Never strand them on the dashboard.
+        else if (st.missing_steps?.includes("whatsapp_connection")) dest = "/onboarding/connect";
       } catch {
         /* fall back to dashboard */
       }

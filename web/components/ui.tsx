@@ -826,7 +826,7 @@ export function SaathiStatusCard({ line }: { line: string }) {
       <SaathiAvatar size={40} />
       <div className="min-w-0">
         <p className="text-2xs font-semibold uppercase tracking-wide text-white/70">Saathi</p>
-        <p className="truncate text-sm font-medium">{line}</p>
+        <p className="line-clamp-2 text-sm font-medium">{line}</p>
       </div>
     </div>
   );

@@ -59,3 +59,38 @@ def test_rate_limit_fails_closed_when_redis_unavailable(monkeypatch):
     assert ratelimit.allow("x", "id", limit=1, window_s=60) is True
     # fail-closed (auth/billing): deny when cache is down — can't be defeated by an outage.
     assert ratelimit.allow("x", "id", limit=1, window_s=60, fail_closed=True) is False
+
+
+def test_cors_never_pairs_wildcard_with_credentials(monkeypatch):
+    """A wildcard origin must never allow credentials — Starlette would otherwise reflect
+    any origin back with credentials enabled (an over-broad policy a future cookie would
+    leak through). Credentials are only allowed with an explicit origin list."""
+    import importlib
+
+    from leadpilot.common.config import settings
+
+    def _cors_kwargs():
+        import leadpilot.bff.app as app_mod
+
+        importlib.reload(app_mod)
+        mw = next(m for m in app_mod.app.user_middleware if "CORS" in m.cls.__name__)
+        return mw.kwargs
+
+    # Dev: wildcard origin, credentials OFF (so no arbitrary-origin reflection).
+    monkeypatch.setattr(settings, "environment", "development")
+    kw = _cors_kwargs()
+    assert kw["allow_origins"] == ["*"]
+    assert kw["allow_credentials"] is False
+
+    # Prod: locked to the configured origin(s), credentials ON.
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "cors_allowed_origins", "https://app.salmor.in")
+    kw = _cors_kwargs()
+    assert kw["allow_origins"] == ["https://app.salmor.in"]
+    assert kw["allow_credentials"] is True
+    assert "*" not in kw["allow_origins"]
+
+    # Restore the app module to its dev baseline so this reload can't leak a
+    # production-configured `app` into later tests that import it.
+    monkeypatch.undo()
+    _cors_kwargs()

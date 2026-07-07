@@ -63,3 +63,13 @@ def format_paise(paise: int) -> str:
     sign = "-" if paise < 0 else ""
     paise = abs(paise)
     return f"{sign}₹{paise // 100:,}.{paise % 100:02d}"
+
+
+def format_rupees(paise: int) -> str:
+    """Whole-rupee display: drops the paise when the amount is a round rupee, so a plan
+    price reads '₹1,499' not '₹1,499.00'. Falls back to two decimals for fractional
+    amounts (e.g. a GST-inclusive total)."""
+    sign = "-" if paise < 0 else ""
+    paise = abs(paise)
+    rupees, rem = paise // 100, paise % 100
+    return f"{sign}₹{rupees:,}" if rem == 0 else f"{sign}₹{rupees:,}.{rem:02d}"

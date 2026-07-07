@@ -39,17 +39,22 @@ init_observability("bff-api")
 
 app = FastAPI(title="Salmor BFF", version="0.1.0")
 
-# In production lock CORS to the known web origin(s) and do NOT pair "*" with credentials
-# (the browser rejects that combo and it signals an over-broad policy).
+# CORS: in production, lock to the known web origin(s). Credentials are ONLY ever paired
+# with an explicit origin list — never the wildcard. Starlette reflects the request origin
+# back (instead of sending "*") the moment allow_credentials is True, so "*" + credentials
+# silently becomes "reflect any origin with credentials". We refuse that combination: with
+# the wildcard we send a literal "*" and disable credentials. (Auth is bearer-token, not
+# cookie, so disabling credentials costs the web app nothing.)
 _cors_origins = ["*"]
 if settings.is_production:
     _configured = [o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()]
     _cors_origins = _configured or [settings.web_base_url]
+_cors_wildcard = _cors_origins == ["*"]
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=not settings.is_production or _cors_origins != ["*"],
+    allow_credentials=not _cors_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
 )
