@@ -19,10 +19,26 @@ import {
   useToast,
 } from "@/components/ui";
 
-const FEATURES: Record<string, string[]> = {
-  STARTER: ["1 campaign", "Daily WhatsApp report", "Lead inbox"],
-  GROWTH: ["Click-to-WhatsApp + Lead Forms", "24×7 WhatsApp qualifier", "Auto-optimisation", "Lead CRM"],
-  PRO: ["Everything in Growth", "Multi-campaign + video", "Ad wallet", "CSV export", "Priority support"],
+// [i18n key, English fallback] so plan features render in the owner's language.
+const FEATURES: Record<string, [string, string][]> = {
+  STARTER: [
+    ["billing.feat.oneCampaign", "1 campaign"],
+    ["billing.feat.dailyReport", "Daily WhatsApp report"],
+    ["billing.feat.leadInbox", "Lead inbox"],
+  ],
+  GROWTH: [
+    ["billing.feat.ctwaForms", "Click-to-WhatsApp + Lead Forms"],
+    ["billing.feat.qualifier", "24×7 WhatsApp qualifier"],
+    ["billing.feat.autoOpt", "Auto-optimisation"],
+    ["billing.feat.leadCrm", "Lead CRM"],
+  ],
+  PRO: [
+    ["billing.feat.allGrowth", "Everything in Growth"],
+    ["billing.feat.multiVideo", "Multi-campaign + video"],
+    ["billing.feat.wallet", "Ad wallet"],
+    ["billing.feat.csv", "CSV export"],
+    ["billing.feat.priority", "Priority support"],
+  ],
 };
 
 export default function Billing() {
@@ -144,10 +160,10 @@ export default function Billing() {
                 </div>
               </div>
               <ul className="mt-3 space-y-1.5">
-                {(FEATURES[tier.tier] || []).map((f) => (
-                  <li key={f} className="flex items-center gap-2 text-sm text-ink-soft">
+                {(FEATURES[tier.tier] || []).map(([key, fallback]) => (
+                  <li key={key} className="flex items-center gap-2 text-sm text-ink-soft">
                     <Icon name="check" className="h-4 w-4 text-brand" strokeWidth={2.5} />
-                    {f}
+                    {t(key, fallback)}
                   </li>
                 ))}
               </ul>
