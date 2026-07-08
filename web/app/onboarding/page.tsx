@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import type { AdStyle } from "@/lib/types";
 import { Button, Icon, Input, TopBar, Textarea, useToast } from "@/components/ui";
 
 const CATEGORIES = [
@@ -30,7 +31,15 @@ export default function Onboarding() {
     // Save the account default in the language the owner picked at login, not a
     // hardcoded default — otherwise a Punjabi/English owner gets Hindi server copy.
     language: locale,
+    // "What kind of ad" — pre-set to auto so a non-tech owner can just tap through.
+    ad_style: "auto",
   });
+  const [styles, setStyles] = useState<AdStyle[] | null>(null);
+
+  // Ad-style templates, localized to the UI language the owner picked at login.
+  useEffect(() => {
+    api.adStyles(locale).then((r) => setStyles(r.styles)).catch(() => setStyles(null));
+  }, [locale]);
 
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const steps = [
@@ -39,15 +48,17 @@ export default function Onboarding() {
     t("ob.step.area", "Area"),
     t("ob.step.budget", "Budget"),
     t("ob.step.goal", "Goal"),
+    t("ob.step.style", "Ad style"),
   ];
 
-  // Per-step validation gates "Next".
+  // Per-step validation gates "Next". The style step is always valid (auto is preset).
   const valid = [
     form.business_name.trim().length >= 2,
     form.offer.trim().length >= 5,
     form.city.trim().length >= 2,
     form.daily_budget_paise > 0,
     form.target_cpql_paise > 0,
+    true,
   ][step];
 
   async function finish() {
@@ -199,6 +210,47 @@ export default function Onboarding() {
                 </button>
               ))}
             </div>
+          </Field>
+        )}
+
+        {step === 5 && (
+          <Field
+            title={t("ob.q.style", "What kind of ad do you want?")}
+            sub={t("ob.encourage.style", "Pick a style — or let Saathi choose. You can change this anytime.")}
+          >
+            {styles ? (
+              <div className="space-y-2">
+                {styles.map((s) => (
+                  <button
+                    key={s.key}
+                    onClick={() => set("ad_style", s.key)}
+                    className={`flex w-full items-start gap-3 rounded-2xl border p-3 text-left transition active:scale-[0.99] ${
+                      form.ad_style === s.key ? "border-brand bg-brand-50 ring-1 ring-brand" : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <span className="text-2xl leading-none">{s.emoji}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2 font-semibold">
+                        {s.label}
+                        {s.recommended && (
+                          <span className="rounded-full bg-brand/10 px-2 py-0.5 text-2xs font-semibold text-brand">
+                            {t("ob.recommended", "Recommended")}
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-sm text-ink-muted">{s.desc}</span>
+                    </span>
+                    {form.ad_style === s.key && <Icon name="check" className="mt-1 h-5 w-5 shrink-0 text-brand" />}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="h-16 animate-pulse rounded-2xl bg-slate-100" />
+                ))}
+              </div>
+            )}
           </Field>
         )}
       </div>

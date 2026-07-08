@@ -24,6 +24,7 @@ from leadpilot.core.models import (
     WaRoute,
     WhatsAppConnection,
 )
+from leadpilot.saathi.ad_styles import is_valid_style, styles_for_locale
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
@@ -39,6 +40,8 @@ class BusinessIn(BaseModel):
     # (kill rules, scaling, reports) optimizes toward this number.
     target_cpql_paise: int | None = None
     language: str = "hi"
+    # "What kind of ad" — one of ad_styles.AD_STYLES, or "auto"/None to let Saathi decide.
+    ad_style: str | None = None
 
 
 class StatusOut(BaseModel):
@@ -82,6 +85,11 @@ def set_business(body: BusinessIn, principal: Principal = Depends(current_princi
         account.default_language = normalize_locale(body.language)
         if body.target_cpql_paise:
             account.target_cpql_paise = body.target_cpql_paise
+        # "auto"/blank means let Saathi decide → store NULL; a real key must be valid.
+        style = None if body.ad_style in (None, "", "auto") else body.ad_style
+        if not is_valid_style(style):
+            raise ValidationError(f"Unknown ad style: {body.ad_style}")
+        account.ad_style = style
         if account.phase == AccountPhase.SIGNED_UP.value:
             account.phase = AccountPhase.ONBOARDING.value
 
@@ -96,6 +104,24 @@ def set_business(body: BusinessIn, principal: Principal = Depends(current_princi
         profile.service_radius_km = body.radius_km
         profile.daily_budget_paise = body.daily_budget_paise
         return {"account_id": str(account.id), "phase": account.phase}
+
+
+@router.get("/ad-styles")
+def ad_styles(
+    locale: str | None = None, principal: Principal = Depends(current_principal)
+) -> dict:
+    """Owner-facing ad-style choices ('what kind of ad?'), with the current selection.
+    'auto' is first and recommended. Labels use ?locale if given (so the onboarding picker
+    matches the UI the owner just chose), else the account's saved language."""
+    acct_locale = "en"
+    selected = "auto"
+    if principal.account_id:
+        with tenant_session(principal.tenant_id) as s:
+            account = s.get(Account, principal.account_id)
+            if account:
+                acct_locale = account.default_language
+                selected = account.ad_style or "auto"
+    return {"styles": styles_for_locale(locale or acct_locale), "selected": selected}
 
 
 @router.post("/whatsapp/connect")

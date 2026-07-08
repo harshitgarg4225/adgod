@@ -31,12 +31,17 @@ class MakerAgent(BaseAgent):
         return SYSTEM_PROMPT
 
     def run(self, session: Session, *, tenant_id: UUID, account_id: UUID, context: dict) -> MakerOutput:
+        # The owner may have picked an ad style (offer / festival / social-proof / …). When
+        # they haven't, this is empty and Maker chooses the most effective angle itself.
+        style = context.get("ad_style_guidance", "")
+        style_line = f"Ad style to follow: {style}\n" if style else ""
         user = (
             f"Language: {context.get('language')}\n"
             f"Angle: {context.get('angle')}\n"
             f"Brief: {context.get('brief')}\n"
             f"Past winners: {context.get('winners')}\n"
             f"Enquiry channel (CTA must match): {context.get('cta_channel', 'WhatsApp message')}\n"
+            f"{style_line}"
             "Write 3 variants + image prompts + optional video script."
         )
         out = self._generate(

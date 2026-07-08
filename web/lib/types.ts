@@ -82,6 +82,7 @@ export interface Settings {
   target_cpql_display: string;
   default_language: string;
   autopilot_level: string;
+  ad_style: string;
   phase: string;
   paused: boolean;
   subscription_tier: string | null;
@@ -125,6 +126,7 @@ export interface SettingsPatch {
   auto_approve_hours: number;
   default_language: string;
   autopilot_level: string;
+  ad_style: string;
   gstin: string;
   legal_name: string;
   billing_address: string;
@@ -160,6 +162,15 @@ export interface BusinessInput {
   daily_budget_paise: number;
   target_cpql_paise: number;
   language: string;
+  ad_style: string;
+}
+
+export interface AdStyle {
+  key: string;
+  emoji: string;
+  label: string;
+  desc: string;
+  recommended: boolean;
 }
 
 export interface Brief {

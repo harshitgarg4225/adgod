@@ -15,6 +15,7 @@ from leadpilot.core.db import tenant_session
 from leadpilot.core.enums import AccountPhase, AutopilotLevel
 from leadpilot.core.models import Account, AdInsight, BusinessProfile, Subscription
 from leadpilot.core.money import format_paise
+from leadpilot.saathi.ad_styles import is_valid_style
 
 router = APIRouter(tags=["settings"])
 
@@ -36,6 +37,7 @@ class SettingsOut(BaseModel):
     default_language: str
     autopilot_level: str
     auto_approve_hours: int
+    ad_style: str  # "auto" or an ad_styles key
     phase: str
     paused: bool
     subscription_tier: str | None
@@ -62,6 +64,8 @@ class SettingsPatch(BaseModel):
     autopilot_level: str | None = None
     # 0 disables auto-launch (Saathi waits for the owner forever); 1-72 hours otherwise.
     auto_approve_hours: int | None = Field(default=None, ge=0, le=72)
+    # "What kind of ad" — an ad_styles key, or "auto"/"" to let Saathi decide.
+    ad_style: str | None = None
     gstin: str | None = Field(default=None, max_length=20)
     legal_name: str | None = Field(default=None, max_length=200)
     billing_address: str | None = Field(default=None, max_length=1000)
@@ -113,6 +117,7 @@ def get_settings(account_id: str, principal: Principal = Depends(current_princip
             default_language=account.default_language,
             autopilot_level=account.autopilot_level,
             auto_approve_hours=account.auto_approve_hours,
+            ad_style=account.ad_style or "auto",
             phase=account.phase,
             paused=account.phase == AccountPhase.PAUSED.value,
             subscription_tier=sub.tier if sub else None,
@@ -135,6 +140,9 @@ def update_settings(
         raise ValidationError(f"Unsupported language: {patch.default_language}")
     if patch.autopilot_level and patch.autopilot_level not in {a.value for a in AutopilotLevel}:
         raise ValidationError(f"Invalid autopilot level: {patch.autopilot_level}")
+    _ad_style = None if patch.ad_style in (None, "", "auto") else patch.ad_style
+    if patch.ad_style is not None and not is_valid_style(_ad_style):
+        raise ValidationError(f"Unknown ad style: {patch.ad_style}")
     with tenant_session(principal.tenant_id) as s:
         account, profile, _ = _load(s, account_id)
         if patch.business_name is not None:
@@ -145,6 +153,8 @@ def update_settings(
             account.autopilot_level = patch.autopilot_level
         if patch.auto_approve_hours is not None:
             account.auto_approve_hours = patch.auto_approve_hours
+        if patch.ad_style is not None:
+            account.ad_style = _ad_style
         if patch.target_cpql_paise is not None:
             account.target_cpql_paise = patch.target_cpql_paise
         if patch.gstin is not None:

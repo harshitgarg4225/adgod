@@ -72,6 +72,9 @@ class Account(Base, TimestampMixin):
     default_language: Mapped[str] = mapped_column(String(8), nullable=False, default="hi")
     timezone: Mapped[str] = mapped_column(String(40), default="Asia/Kolkata")
     target_cpql_paise: Mapped[int] = mapped_column(BigInteger, default=20000)
+    # Owner's chosen ad-copy style (see saathi/ad_styles.py). NULL = "let Saathi decide",
+    # the default and least-effort option for a non-technical owner.
+    ad_style: Mapped[str | None] = mapped_column(String(30))
     created_via: Mapped[str | None] = mapped_column(String(40))
     # Autopilot-with-veto: creatives auto-approve this many hours after generation on the
     # ASSISTED level (0 = wait for the owner forever). FULL skips approval entirely;

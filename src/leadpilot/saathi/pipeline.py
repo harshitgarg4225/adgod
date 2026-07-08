@@ -58,6 +58,7 @@ from leadpilot.core.models import (
 from leadpilot.integrations.meta import meta_adapter_for_account
 from leadpilot.integrations.scrape import scrape_site
 from leadpilot.integrations.whatsapp import get_whatsapp_adapter
+from leadpilot.saathi.ad_styles import style_guidance
 from leadpilot.saathi.agents.buyer import BuyerAgent
 from leadpilot.saathi.agents.maker import MakerAgent
 from leadpilot.saathi.agents.reporter import ReporterAgent
@@ -176,7 +177,8 @@ def run_creative(session: Session, *, tenant_id: UUID, account_id: UUID, max_ang
             session, tenant_id=tenant_id, account_id=account_id,
             context={"language": account.default_language, "angle": angle.title,
                      "brief": brief.offer if brief else "", "winners": winners,
-                     "cta_channel": cta_channel},
+                     "cta_channel": cta_channel,
+                     "ad_style_guidance": style_guidance(account.ad_style)},
         )
         variant = out.variants[0]
         comp = guard.record(check_creative_copy(
@@ -969,7 +971,8 @@ def rotate_fresh_creative(session: Session, *, tenant_id: UUID, account_id: UUID
     out = MakerAgent().run(
         session, tenant_id=tenant_id, account_id=account_id,
         context={"language": account.default_language, "angle": angle.title,
-                 "brief": "", "winners": winners})
+                 "brief": "", "winners": winners,
+                 "ad_style_guidance": style_guidance(account.ad_style)})
     variant = out.variants[0]
     if not check_creative_copy(variant.primary_text, variant.headline, variant.description).ok:
         return None

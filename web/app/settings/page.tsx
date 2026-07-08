@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, clearSession, getUser } from "@/lib/api";
-import type { Settings } from "@/lib/types";
+import type { AdStyle, Settings } from "@/lib/types";
 import { LANGUAGES, useI18n } from "@/lib/i18n";
 import {
   BottomNav,
@@ -46,6 +46,7 @@ export default function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [styles, setStyles] = useState<AdStyle[] | null>(null);
 
   // Editable form state
   const [name, setName] = useState("");
@@ -82,6 +83,10 @@ export default function SettingsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    api.adStyles(locale).then((r) => setStyles(r.styles)).catch(() => setStyles(null));
+  }, [locale]);
 
   async function save(patch: Record<string, unknown>, successMsg: string) {
     if (!acc) return;
@@ -239,6 +244,39 @@ export default function SettingsPage() {
             })}
           </div>
         </Card>
+
+        {/* Ad style — "what kind of ad" the owner wants */}
+        {styles && (
+          <Card className="space-y-3">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
+              {t("settings.adStyle", "Ad style")}
+            </h2>
+            <p className="text-sm text-ink-muted">
+              {t("settings.adStyleDesc", "The kind of ad Saathi writes for you. Change it anytime.")}
+            </p>
+            <div className="space-y-2">
+              {styles.map((st) => {
+                const on = (s.ad_style || "auto") === st.key;
+                return (
+                  <button
+                    key={st.key}
+                    onClick={() => save({ ad_style: st.key }, t("settings.savedAdStyle", "Ad style updated."))}
+                    className={`flex w-full items-start gap-3 rounded-xl border p-3 text-left transition ${
+                      on ? "border-brand bg-brand-50" : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <span className="text-xl leading-none">{st.emoji}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold">{st.label}</span>
+                      <span className="block text-sm text-ink-muted">{st.desc}</span>
+                    </span>
+                    {on && <Icon name="check" className="mt-0.5 h-5 w-5 shrink-0 text-brand" />}
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+        )}
 
         <Card className="space-y-3">
           <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
