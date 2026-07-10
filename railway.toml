@@ -1,34 +1,36 @@
-# Railway multi-service config. One image, different start commands per service.
-# Each service in the Railway project points at this repo; the [build] image is shared.
-# See infra/railway/README.md for provisioning order (postgres -> redis -> pgbouncer -> services).
+# Railway config for the repo-root service = bff-api (the API + owner-facing backend).
+# Point a Railway service at this repo and it self-configures from this file: it builds the
+# shared Python image, runs DB migrations on every deploy, starts the API (the Dockerfile's
+# gunicorn CMD), and health-checks /health. No dashboard start-command needed.
 #
-# NOTE: Railway typically configures one service per railway.toml via the dashboard or
-# per-service config files. This file documents the canonical start commands; replicate
-# each [service.*] block as a Railway service with the matching start command.
+# The other services deploy the SAME repo/image with a Custom Start Command (see the list
+# at the bottom). The web frontend is a separate Node service rooted at web/ (web/railway.toml).
+# Full runbook: docs/RAILWAY_DEPLOY.md and infra/railway/README.md.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "docker/python.Dockerfile"
 
 [deploy]
-# Default start command (overridden per service below).
-startCommand = "python -m leadpilot.bff"
+# No startCommand → uses the image CMD (gunicorn leadpilot.bff.app on $PORT).
+# preDeployCommand runs once before the new version goes live — creates the RLS roles
+# (migrations 0001/0005) and brings the schema to head. Safe + idempotent to re-run.
+preDeployCommand = "alembic upgrade head"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
 
 # ---------------------------------------------------------------------------
-# Canonical per-service start commands (set these as the Custom Start Command
-# on each Railway service that deploys this repo/image):
+# The other services deploy THIS repo with a Custom Start Command in the dashboard
+# (they don't need their own config file — set the start command and the shared env):
 #
-#   bff-api          : gunicorn leadpilot.bff.app:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
-#   webhook-intake   : gunicorn leadpilot.webhook.app:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
-#   closer-worker    : celery -A leadpilot.worker.celery_app worker -Q closer -c 4 -n closer@%h
-#   agent-worker     : celery -A leadpilot.worker.celery_app worker -Q agent,optimizer,launch -c 4 -n agent@%h
-#   cron-dispatch    : celery -A leadpilot.worker.celery_app beat
-#   web-next         : (separate Node service) npm run start  (root: web/)
+#   webhook-intake : gunicorn leadpilot.webhook.app:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
+#   closer-worker  : celery -A leadpilot.worker.celery_app worker -Q closer -c 4 -n closer@%h
+#   agent-worker   : celery -A leadpilot.worker.celery_app worker -Q agent,optimizer,launch -c 4 -n agent@%h
+#   cron-dispatch  : celery -A leadpilot.worker.celery_app beat
+#   web-next       : separate Node service, root dir web/, builder = Dockerfile (web/railway.toml)
 #
-# Run DB migrations as a release/pre-deploy step:
-#   alembic upgrade head
+# For a first-look DEMO you only need bff-api + web-next + Postgres + Redis. Add the three
+# worker services when you want the autonomous optimize/lead loop running in the background.
 # ---------------------------------------------------------------------------
