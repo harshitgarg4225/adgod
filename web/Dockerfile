@@ -22,4 +22,7 @@ COPY --from=build /app/public ./public
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 EXPOSE 3000
-CMD ["node", "server.js"]
+# Next.js standalone binds to $HOSTNAME; Docker/Railway set that to the container ID, so the
+# server would listen only on the container's own address and fail the platform healthcheck.
+# Force 0.0.0.0 at launch (a command-level assignment wins over the inherited HOSTNAME).
+CMD ["sh", "-c", "HOSTNAME=0.0.0.0 node server.js"]
