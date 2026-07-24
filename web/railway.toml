@@ -11,7 +11,10 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "node server.js"
+# HOSTNAME=0.0.0.0 forces the Next.js standalone server to bind all interfaces. Docker sets
+# HOSTNAME to the container ID, which Next would otherwise bind to, failing the healthcheck.
+# (This startCommand overrides the Dockerfile CMD, so the bind fix must live here.)
+startCommand = "HOSTNAME=0.0.0.0 node server.js"
 healthcheckPath = "/login"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
