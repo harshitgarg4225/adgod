@@ -11,10 +11,11 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# HOSTNAME=0.0.0.0 forces the Next.js standalone server to bind all interfaces. Docker sets
-# HOSTNAME to the container ID, which Next would otherwise bind to, failing the healthcheck.
-# (This startCommand overrides the Dockerfile CMD, so the bind fix must live here.)
-startCommand = "HOSTNAME=0.0.0.0 node server.js"
+# Bind the Next.js standalone server to all IPv6 interfaces (::). Railway's private network
+# and healthcheck are IPv6, so binding IPv4-only (0.0.0.0) or to the container's own hostname
+# (Docker's default $HOSTNAME) fails the healthcheck. `::` is dual-stack (accepts IPv4 too).
+# This startCommand overrides the Dockerfile CMD, so the bind fix must live here.
+startCommand = "HOSTNAME=:: node server.js"
 healthcheckPath = "/login"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
