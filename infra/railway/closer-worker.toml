@@ -1,0 +1,11 @@
+# Railway config-as-code for the `closer-worker` service (WhatsApp lead-qualification queue).
+# In the service: Settings → Config-as-code → path = infra/railway/closer-worker.toml
+# Kept separate from agent-worker so slow creative jobs can never delay a lead's reply.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/python.Dockerfile"
+
+[deploy]
+startCommand = "celery -A leadpilot.worker.celery_app worker -Q closer -c 4 -n closer@%h"
+restartPolicyType = "ALWAYS"

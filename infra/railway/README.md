@@ -63,15 +63,16 @@ once via `railway run alembic upgrade head`). Optionally seed a demo account:
 `railway run python -m leadpilot.scripts.seed_demo`.
 
 ## 4. Services (all deploy this repo with the shared Dockerfile)
-Set each service's **Custom Start Command**:
+Every service is **config-as-code** — create the service from the repo, then point it at
+its config file (Settings → Config-as-code → path). No hand-typed start commands:
 
-| Service | Start command | Health |
+| Service | Config file | Health |
 |---|---|---|
-| `bff-api` | `gunicorn leadpilot.bff.app:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT` | `/health` |
-| `webhook-intake` | `gunicorn leadpilot.webhook.app:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT` | `/health` |
-| `closer-worker` | `celery -A leadpilot.worker.celery_app worker -Q closer -c 4 -n closer@%h` | — |
-| `agent-worker` | `celery -A leadpilot.worker.celery_app worker -Q agent,optimizer,launch -c 4 -n agent@%h` | — |
-| `cron-dispatch` | `celery -A leadpilot.worker.celery_app beat` | — |
+| `bff-api` | `railway.toml` (repo root — the default) | `/health` |
+| `webhook-intake` | `infra/railway/webhook-intake.toml` | `/health` |
+| `closer-worker` | `infra/railway/closer-worker.toml` | — |
+| `agent-worker` | `infra/railway/agent-worker.toml` | — |
+| `cron-dispatch` | `infra/railway/cron-dispatch.toml` (**exactly 1 replica** — it's the scheduler) | — |
 
 The web frontend is a **separate Node service** rooted at `web/` — it ships its own
 `web/railway.toml` pinning the Dockerfile builder (Next.js `standalone` → `node server.js`):
@@ -101,6 +102,6 @@ change — the adapter interface is identical. Recommended order: `MOCK_LLM` →
 `MOCK_OTP` → `MOCK_WHATSAPP` → `MOCK_META` → `MOCK_RAZORPAY`.
 
 ## 7. Notes
-- `railway.toml` documents the canonical start commands.
+- `railway.toml` (root) + `infra/railway/*.toml` are the canonical per-service configs.
 - `docker/python.Dockerfile` is the shared image for all Python services.
 - Scale `closer-worker` replicas independently to protect the inbound p95.

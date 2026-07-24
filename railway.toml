@@ -22,15 +22,16 @@ restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
 
 # ---------------------------------------------------------------------------
-# The other services deploy THIS repo with a Custom Start Command in the dashboard
-# (they don't need their own config file — set the start command and the shared env):
+# The other services deploy THIS repo too. Each has its own config-as-code file — point the
+# service at it (Settings → Config-as-code → path) and it self-configures:
 #
-#   webhook-intake : gunicorn leadpilot.webhook.app:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
-#   closer-worker  : celery -A leadpilot.worker.celery_app worker -Q closer -c 4 -n closer@%h
-#   agent-worker   : celery -A leadpilot.worker.celery_app worker -Q agent,optimizer,launch -c 4 -n agent@%h
-#   cron-dispatch  : celery -A leadpilot.worker.celery_app beat
+#   webhook-intake : infra/railway/webhook-intake.toml
+#   agent-worker   : infra/railway/agent-worker.toml
+#   closer-worker  : infra/railway/closer-worker.toml
+#   cron-dispatch  : infra/railway/cron-dispatch.toml   (exactly 1 replica — it's the clock)
 #   web-next       : separate Node service, root dir web/, builder = Dockerfile (web/railway.toml)
 #
-# For a first-look DEMO you only need bff-api + web-next + Postgres + Redis. Add the three
-# worker services when you want the autonomous optimize/lead loop running in the background.
+# For a first-look DEMO you only need bff-api + web-next + Postgres + Redis (PIPELINE_INLINE=true).
+# Add the three worker services + webhook-intake when you want the autonomous optimize/lead loop
+# running in the background, and flip PIPELINE_INLINE=false.
 # ---------------------------------------------------------------------------

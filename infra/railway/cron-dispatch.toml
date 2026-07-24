@@ -1,0 +1,13 @@
+# Railway config-as-code for the `cron-dispatch` service (Celery beat — the autonomous loop's clock:
+# optimizer sweeps, lead-form polling, daily reports, re-engagement windows).
+# In the service: Settings → Config-as-code → path = infra/railway/cron-dispatch.toml
+# EXACTLY ONE replica, ever — two beats would double-fire every scheduled job.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/python.Dockerfile"
+
+[deploy]
+startCommand = "celery -A leadpilot.worker.celery_app beat"
+restartPolicyType = "ALWAYS"
+numReplicas = 1

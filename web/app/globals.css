@@ -82,3 +82,20 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Legal / policy pages — readable long-form prose without pulling in a typography plugin. */
+.legal-prose h2 {
+  @apply mt-8 text-lg font-semibold tracking-tight text-ink;
+}
+.legal-prose h3 {
+  @apply mt-5 text-base font-semibold text-ink;
+}
+.legal-prose p {
+  @apply mt-3 text-sm leading-relaxed text-ink-soft;
+}
+.legal-prose ul {
+  @apply mt-3 list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-ink-soft;
+}
+.legal-prose a {
+  @apply font-medium text-brand underline decoration-brand-200 underline-offset-2;
+}

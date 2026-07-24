@@ -25,14 +25,21 @@ It separates **what's a config flip** (minutes) from **what's an external approv
 - Watch `LLM_DAILY_BUDGET_PER_ACCOUNT_PAISE` (per-account cost cap is enforced in the router).
 
 ## Stage 2 — Turn on OTP + billing (config flip once accounts exist)
+- **Demo → real login:** the demo deploy runs `ENVIRONMENT=development` so the OTP shows
+  on-screen (`dev_code`). Before onboarding a real customer set `ENVIRONMENT=production` —
+  the on-screen code disappears, and until SMS is wired you mint codes yourself (below).
 - **MSG91**: add `MSG91_API_KEY` + `MSG91_TEMPLATE_ID` (DLT-registered OTP template —
   mandatory for SMS delivery in India), set `MOCK_OTP=false`. Until SMS is wired (or if it
   ever fails), mint a login code without SMS:
   `railway run python -m leadpilot.scripts.mint_login --phone +919812345678` — the client
-  types the printed code into the normal login screen.
+  types the printed code into the normal login screen (the "I already have a code" path).
 - **Razorpay**: activate account + UPI Autopay + GST; create per-tier Plans; add
   `RAZORPAY_KEY_ID/SECRET/WEBHOOK_SECRET`, map plan ids, set `MOCK_RAZORPAY=false`.
   Point the Razorpay webhook at `https://<webhook-intake>/webhooks/razorpay`.
+  Razorpay's website review is already satisfied by the public pages the app ships:
+  landing with visible pricing (`/`), `/terms`, `/privacy`, `/refunds`, `/contact` —
+  submit the `web-next` URL as your business website. Update `web/lib/company.ts`
+  (legal name, registered address, grievance officer) once the entity is registered.
 
 ## Stage 3 — Meta + WhatsApp
 1. **Meta — review-free agency path (recommended, works TODAY):** no App Review needed.
@@ -84,10 +91,15 @@ Built and tested (just supply the secret / flip the flag):
   size the pool via `DB_POOL_SIZE`/`DB_MAX_OVERFLOW` and front Postgres with PgBouncer
   (`DATABASE_URL_POOLED`) so replicas don't exhaust `max_connections`.
 
+Also built since the first draft of this runbook: owner-initiated pipeline triggers
+auto-enqueue to Celery when `PIPELINE_INLINE=false` (`bff/routers/agents.py`); streaming
+lead CSV export; wallet + GST invoices; the public site pages (`/` landing with pricing,
+`/terms`, `/privacy` (DPDP), `/refunds`, `/contact`) that Razorpay's activation review
+checks for; and config-as-code for every service (`infra/railway/*.toml`).
+
 Still recommended follow-ups: enable PgBouncer; raise `closer-worker` warm replicas;
-move owner-initiated pipeline triggers in `bff/routers/agents.py` to enqueue at scale;
-Razorpay invoice-PDF generation; CSV export + wallet (Pro); Meta Embedded-Signup OAuth
-callback (replaces manual token entry on `/onboarding/meta/connect`).
+Razorpay invoice-PDF generation (invoices are currently in-app records); Meta
+Embedded-Signup OAuth callback (replaces manual token entry on `/onboarding/meta/connect`).
 
 ## Definition of "ready for first paying pilot"
 Stages 0–2 done + Stage 3 via the **CTWA-to-app shortcut** (no WABA needed) + Stage 4

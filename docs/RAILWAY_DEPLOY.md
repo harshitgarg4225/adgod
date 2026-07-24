@@ -103,11 +103,16 @@ first build and you don't have to rebuild.
    for video) and `R2_*` (creative hosting), set `MOCK_LLM=false`.
 2. **Turn on real ads:** add `META_SYSTEM_USER_TOKEN` + `META_APP_ID/SECRET`, set
    `MOCK_META=false`, and share each client's ad account + Page under your Business Manager.
-3. **Add the 3 workers** (so the autonomous loop runs) — new services on the same repo, and
-   flip `PIPELINE_INLINE=false`:
-   - `agent-worker` → `celery -A leadpilot.worker.celery_app worker -Q agent,optimizer,launch -c 4 -n agent@%h`
-   - `closer-worker` → `celery -A leadpilot.worker.celery_app worker -Q closer -c 4 -n closer@%h`
-   - `cron-dispatch` → `celery -A leadpilot.worker.celery_app beat`
+3. **Add the 3 workers + webhook-intake** (so the autonomous loop + inbound webhooks run) —
+   new services on the same repo, and flip `PIPELINE_INLINE=false`. Each is config-as-code:
+   create the service from the repo, then Settings → **Config-as-code** → set the path —
+   it picks up its build + start command automatically:
+   - `agent-worker` → `infra/railway/agent-worker.toml`
+   - `closer-worker` → `infra/railway/closer-worker.toml`
+   - `cron-dispatch` → `infra/railway/cron-dispatch.toml` (keep exactly **1 replica**)
+   - `webhook-intake` → `infra/railway/webhook-intake.toml` (+ Generate Domain — this is the
+     public URL Meta/Razorpay/BSP webhooks point at)
+   Give each the same variables as `bff-api` (or use a Shared Variable group).
 4. **Billing:** add `RAZORPAY_*`, set `MOCK_RAZORPAY=false` (until then: manual UPI +
    admin "Mark paid").
 

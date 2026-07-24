@@ -1,0 +1,12 @@
+# Railway config-as-code for the `agent-worker` service (research/creative/launch/optimize queues).
+# In the service: Settings → Config-as-code → path = infra/railway/agent-worker.toml
+# Shares the same env group as bff-api; remember to set PIPELINE_INLINE=false once workers exist.
+# No healthcheckPath — Celery workers expose no HTTP; Railway just supervises the process.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/python.Dockerfile"
+
+[deploy]
+startCommand = "celery -A leadpilot.worker.celery_app worker -Q agent,optimizer,launch -c 4 -n agent@%h"
+restartPolicyType = "ALWAYS"

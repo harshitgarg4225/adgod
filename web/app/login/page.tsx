@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, saveSession } from "@/lib/api";
@@ -170,10 +171,21 @@ export default function Login() {
         )}
       </div>
 
-      {/* Consent + Trust */}
+      {/* Consent + Trust — links satisfy DPDP notice + payment-gateway page checks. */}
       <div className="space-y-2 text-center">
         <p className="text-2xs text-ink-faint">
           {t("login.consent", "By continuing you agree to our Terms & Privacy Policy.")}
+        </p>
+        <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-2xs">
+          <Link href="/terms" className="font-medium text-ink-muted underline decoration-slate-300 underline-offset-2">
+            {t("footer.terms", "Terms & Conditions")}
+          </Link>
+          <Link href="/privacy" className="font-medium text-ink-muted underline decoration-slate-300 underline-offset-2">
+            {t("footer.privacy", "Privacy Policy")}
+          </Link>
+          <Link href="/refunds" className="font-medium text-ink-muted underline decoration-slate-300 underline-offset-2">
+            {t("footer.refunds", "Refunds & Cancellation")}
+          </Link>
         </p>
         <div className="flex items-center justify-center gap-2 text-xs text-ink-faint">
           <Icon name="shield" className="h-4 w-4" />
